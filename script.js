@@ -388,42 +388,51 @@
         dragHandle.className = 'drag-handle';
         dragHandle.textContent = '⋮⋮';
         dragHandle.title = 'Layer ziehen';
-
+        
+        //Rename Edit Start
+        
         const nameEl = document.createElement('div');
         nameEl.className = 'layer-name';
         nameEl.textContent = layer.name;
-        nameEl.title = 'Doppelklick zum Umbenennen';
-        nameEl.addEventListener('dblclick', (event) => {
-          event.stopPropagation();
-          const input = document.createElement('input');
-          input.type = 'text';
-          input.value = layer.name;
-          input.className = 'layer-rename-input';
+        nameEl.title = 'Layer umbenennen';
 
-          const finishRename = (commit) => {
+        function startRename(event) {
+        if (event) event.stopPropagation();
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = layer.name;
+        input.className = 'layer-rename-input';
+
+        const finishRename = (commit) => {
             if (commit) {
-              const newName = input.value.trim();
-              if (newName && newName !== layer.name) {
+            const newName = input.value.trim();
+            if (newName && newName !== layer.name) {
                 pushHistory();
                 layer.name = newName;
                 updateStatus('Layer umbenannt');
-              }
+            }
             }
             renderLayerList();
-          };
+        };
 
-          input.addEventListener('click', e => e.stopPropagation());
-          input.addEventListener('keydown', (e) => {
+        input.addEventListener('click', (e) => e.stopPropagation());
+        input.addEventListener('mousedown', (e) => e.stopPropagation());
+        input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') finishRename(true);
             if (e.key === 'Escape') finishRename(false);
-          });
-          input.addEventListener('blur', () => finishRename(true));
-
-          titleWrap.replaceChild(input, nameEl);
-          input.focus();
-          input.select();
         });
+        input.addEventListener('blur', () => finishRename(true));
 
+        titleWrap.replaceChild(input, nameEl);
+        input.focus();
+        input.select();
+        }
+
+        nameEl.addEventListener('dblclick', startRename);
+        
+        //Rename Edit end
+        
         titleWrap.appendChild(dragHandle);
         titleWrap.appendChild(nameEl);
 
@@ -436,6 +445,13 @@
 
         const actions = document.createElement('div');
         actions.className = 'layer-actions';
+
+        const renameBtn = document.createElement('button');
+        renameBtn.className = 'icon-btn';
+        renameBtn.type = 'button';
+        renameBtn.textContent = '✏️';
+        renameBtn.title = 'Layer umbenennen';
+        renameBtn.addEventListener('click', startRename);
 
         const toggleBtn = document.createElement('button');
         toggleBtn.className = 'icon-btn';
@@ -475,6 +491,7 @@
           updateStatus('Layer gelöscht');
         });
 
+        actions.appendChild(renameBtn);
         actions.appendChild(toggleBtn);
         actions.appendChild(deleteBtn);
         item.appendChild(left);

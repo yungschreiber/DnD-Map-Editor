@@ -441,8 +441,7 @@ function applyToolAt(x, y) {
   } else if (state.currentTool === 'fill') {
     fillPixels(x, y, normalizeColor(state.currentColor));
   } else if (state.currentTool === 'picker') {
-    state.currentColor = state.pixels[y][x] || '#00000000';
-    renderPalette();
+    setCurrentColor(state.pixels[y][x] || '#00000000');
   }
 
   drawEditor();
@@ -506,12 +505,20 @@ document.getElementById('newAssetBtn').addEventListener('click', resetEditor);
 document.getElementById('saveAssetBtn').addEventListener('click', saveCurrentAsset);
 document.getElementById('exportAssetBtn').addEventListener('click', () => exportAsset());
 assetImportInput.addEventListener('change', event => importAssetFile(event.target.files[0]));
+rgbColorInput.addEventListener('input', () => {
+  setCurrentColor(rgbColorInput.value);
+  setStatus(`Farbe: <strong>${rgbColorInput.value}</strong>`);
+});
+rgbRInput.addEventListener('input', applyRgbInputs);
+rgbGInput.addEventListener('input', applyRgbInputs);
+rgbBInput.addEventListener('input', applyRgbInputs);
 
 function init() {
   loadAssetsFromStorage();
   state.pixels = createEmptyPixels(state.width, state.height);
   syncInputs();
   renderPalette();
+  syncColorInputs();
   renderTools();
   renderAssetList();
   resizeEditorCanvas();

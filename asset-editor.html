@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Asset Editor - DnD Map Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="asset-app">
+    <header class="topbar">
+      <div class="group brand-group">
+        <div class="brand">Grid Asset Editor</div>
+        <a class="nav-link-button" href="index.html" data-icon="◇">Zur Map</a>
+      </div>
+      <div class="group">
+        <button id="newAssetBtn" type="button" data-icon="+">Neues Asset</button>
+        <button id="saveAssetBtn" type="button" data-icon="↓">Asset speichern</button>
+        <button id="exportAssetBtn" type="button" data-icon="⇱">JSON exportieren</button>
+      </div>
+    </header>
+
+    <aside class="asset-sidebar">
+      <section class="section">
+        <h2 class="panel-title">Asset</h2>
+        <div class="field">
+          <label for="assetNameInput">Name</label>
+          <input id="assetNameInput" type="text" value="Tree Small" />
+        </div>
+        <div class="field">
+          <label for="assetCategoryInput">Kategorie</label>
+          <input id="assetCategoryInput" type="text" value="Nature" />
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="assetWidthInput">Breite</label>
+            <input id="assetWidthInput" type="number" min="1" max="16" value="4" />
+          </div>
+          <div class="field">
+            <label for="assetHeightInput">Höhe</label>
+            <input id="assetHeightInput" type="number" min="1" max="16" value="4" />
+          </div>
+        </div>
+        <button id="applyGridBtn" type="button" data-icon="↔">Raster anwenden</button>
+      </section>
+
+      <section class="section">
+        <h2 class="panel-title">Tools</h2>
+        <div class="asset-tool-grid" id="assetToolButtons"></div>
+      </section>
+
+      <section class="section">
+        <h2 class="panel-title">Farben</h2>
+        <div class="palette-grid" id="paletteButtons"></div>
+      </section>
+
+      <section class="section">
+        <h2 class="panel-title">Import</h2>
+        <div class="field">
+          <label for="assetImportInput">Asset JSON laden</label>
+          <input id="assetImportInput" type="file" accept="application/json" />
+        </div>
+      </section>
+
+      <section>
+        <h2 class="panel-title">Status</h2>
+        <div class="asset-status" id="assetStatus"></div>
+      </section>
+    </aside>
+
+    <main class="asset-stage">
+      <section class="asset-canvas-shell">
+        <canvas class="asset-canvas" id="assetCanvas" width="256" height="256"></canvas>
+      </section>
+
+      <section class="section" style="margin-bottom:0; padding-bottom:0; border-bottom:none;">
+        <h2 class="panel-title">Vorschau</h2>
+        <div class="asset-preview">
+          <canvas id="assetPreviewCanvas" width="192" height="192"></canvas>
+        </div>
+      </section>
+    </main>
+
+    <aside class="asset-library">
+      <section class="section">
+        <h2 class="panel-title">Bibliothek</h2>
+        <div class="hint">Gespeicherte Assets landen lokal im Browser und können von hier wieder geladen oder exportiert werden.</div>
+      </section>
+
+      <section style="margin-bottom:0;">
+        <div class="asset-list" id="assetList"></div>
+      </section>
+    </aside>
+  </div>
+
+  <script src="asset-editor.js"></script>
+</body>
+</html>

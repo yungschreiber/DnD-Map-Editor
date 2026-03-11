@@ -14,6 +14,8 @@
       { id: 'void', label: 'Leer', color: '#111827' }
     ];
 
+    const ASSET_STORAGE_KEY = 'dnd-map-editor-assets';
+
     const TILE_CATEGORIES = [
       {
         id: 'basic',
@@ -76,6 +78,20 @@
       { id: 'text', label: 'Text' }
     ];
 
+    const BUTTON_ICONS = {
+      paint: '✦',
+      erase: '×',
+      fill: '■',
+      rect: '▭',
+      circle: '◯',
+      text: 'T',
+      select: '◇',
+      rename: '✎',
+      visible: '◉',
+      hidden: '◎',
+      delete: '✕'
+    };
+
     const canvas = document.getElementById('mapCanvas');
     const mapStage = document.getElementById('mapStage');
     const resizeHandleRight = document.getElementById('resizeHandleRight');
@@ -86,6 +102,7 @@
     const tileButtons = document.getElementById('tileButtons');
     const toolButtons = document.getElementById('toolButtons');
     const layerList = document.getElementById('layerList');
+    const assetLibraryList = document.getElementById('assetLibraryList');
 
     const state = {
       mapWidth: 30,
@@ -95,10 +112,12 @@
       showGrid: true,
       selectedTile: 'stone',
       selectedTool: 'paint',
+      selectedAssetId: null,
       isDrawing: false,
       dragStart: null,
       hoverCell: null,
       layers: [],
+      assetLibrary: [],
       activeLayerId: null,
       nextLayerId: 2,
       history: [],
@@ -128,6 +147,10 @@
       return state.layers.find(layer => layer.id === state.activeLayerId) || state.layers[0];
     }
 
+    function getSelectedAsset() {
+      return state.assetLibrary.find(asset => asset.id === state.selectedAssetId) || null;
+    }
+
     function clamp(value, min, max) {
       return Math.min(max, Math.max(min, value));
     }
@@ -148,10 +171,12 @@
     function updateStatus(extra = '') {
       const tile = getTileDef(state.selectedTile);
       const activeLayer = getActiveLayer();
+      const selectedAsset = getSelectedAsset();
       statusBox.innerHTML = `
         Tool: <strong>${TOOLS.find(t => t.id === state.selectedTool)?.label}</strong><br>
         Tile: <strong>${tile.label}</strong><br>
         Kategorie: <strong>${tile.categoryLabel}</strong><br>
+        Asset: <strong>${selectedAsset ? selectedAsset.name : '-'}</strong><br>
         Layer: <strong>${activeLayer?.name || '-'}</strong><br>
         Größe: <strong>${state.mapWidth} × ${state.mapHeight}</strong><br>
         Tile Size: <strong>${state.tileSize}px</strong><br>
@@ -489,6 +514,7 @@
       TOOLS.forEach(tool => {
         const btn = document.createElement('button');
         btn.textContent = tool.label;
+        btn.dataset.icon = BUTTON_ICONS[tool.id] || '•';
         btn.className = state.selectedTool === tool.id ? 'active' : '';
         btn.addEventListener('click', () => {
           state.selectedTool = tool.id;
@@ -496,6 +522,96 @@
           updateStatus();
         });
         toolButtons.appendChild(btn);
+      });
+    }
+
+    function loadAssetLibrary() {
+      try {
+        state.assetLibrary = JSON.parse(localStorage.getItem(ASSET_STORAGE_KEY) || '[]');
+      } catch {
+        state.assetLibrary = [];
+      }
+
+      if (state.selectedAssetId && !state.assetLibrary.some(asset => asset.id === state.selectedAssetId)) {
+        state.selectedAssetId = null;
+      }
+    }
+
+    function createAssetPreview(asset, previewSize = 120) {
+      const preview = document.createElement('canvas');
+      preview.width = previewSize;
+      preview.height = previewSize;
+      const previewCtx = preview.getContext('2d');
+      previewCtx.fillStyle = '#0b1220';
+      previewCtx.fillRect(0, 0, preview.width, preview.height);
+
+      const size = Math.max(6, Math.floor(Math.min(
+        preview.width / Math.max(asset.width, 1),
+        preview.height / Math.max(asset.height, 1)
+      )));
+      const offsetX = Math.floor((preview.width - asset.width * size) / 2);
+      const offsetY = Math.floor((preview.height - asset.height * size) / 2);
+
+      asset.pixels.forEach((row, y) => {
+        row.forEach((cell, x) => {
+          if (!cell) return;
+          previewCtx.fillStyle = cell;
+          previewCtx.fillRect(offsetX + x * size, offsetY + y * size, size, size);
+        });
+      });
+
+      return preview;
+    }
+
+    function renderAssetLibrary() {
+      assetLibraryList.innerHTML = '';
+
+      if (!state.assetLibrary.length) {
+        const empty = document.createElement('div');
+        empty.className = 'hint';
+        empty.textContent = 'Noch keine Assets vorhanden. Erstelle zuerst welche im Asset Editor.';
+        assetLibraryList.appendChild(empty);
+        return;
+      }
+
+      state.assetLibrary.forEach(asset => {
+        const card = document.createElement('div');
+        card.className = 'asset-card' + (asset.id === state.selectedAssetId ? ' active' : '');
+
+        const head = document.createElement('div');
+        head.className = 'asset-card-head';
+
+        const meta = document.createElement('div');
+        const title = document.createElement('div');
+        title.className = 'asset-card-title';
+        title.textContent = asset.name;
+        const info = document.createElement('div');
+        info.className = 'asset-card-meta';
+        info.innerHTML = `${asset.category || 'Misc'}<br>${asset.width}x${asset.height} Zellen`;
+        meta.appendChild(title);
+        meta.appendChild(info);
+        head.appendChild(meta);
+        card.appendChild(head);
+
+        card.appendChild(createAssetPreview(asset));
+
+        const actions = document.createElement('div');
+        actions.className = 'asset-card-actions';
+
+        const selectBtn = document.createElement('button');
+        selectBtn.type = 'button';
+        selectBtn.dataset.icon = BUTTON_ICONS.select;
+        selectBtn.textContent = asset.id === state.selectedAssetId ? 'Ausgewählt' : 'Auswählen';
+        selectBtn.className = asset.id === state.selectedAssetId ? 'active' : '';
+        selectBtn.addEventListener('click', () => {
+          state.selectedAssetId = asset.id;
+          renderAssetLibrary();
+          updateStatus(`Asset ausgewählt: <strong>${asset.name}</strong>`);
+        });
+
+        actions.appendChild(selectBtn);
+        card.appendChild(actions);
+        assetLibraryList.appendChild(card);
       });
     }
 
@@ -641,14 +757,16 @@
         const renameBtn = document.createElement('button');
         renameBtn.className = 'icon-btn';
         renameBtn.type = 'button';
-        renameBtn.textContent = '✏️';
+        renameBtn.dataset.icon = BUTTON_ICONS.rename;
+        renameBtn.textContent = '';
         renameBtn.title = 'Layer umbenennen';
         renameBtn.addEventListener('click', startRename);
 
         const toggleBtn = document.createElement('button');
         toggleBtn.className = 'icon-btn';
         toggleBtn.type = 'button';
-        toggleBtn.textContent = layer.visible ? '👁' : '🚫';
+        toggleBtn.dataset.icon = layer.visible ? BUTTON_ICONS.visible : BUTTON_ICONS.hidden;
+        toggleBtn.textContent = '';
         toggleBtn.title = layer.visible ? 'Layer ausblenden' : 'Layer einblenden';
         toggleBtn.addEventListener('click', (event) => {
           event.stopPropagation();
@@ -662,7 +780,8 @@
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'icon-btn danger';
         deleteBtn.type = 'button';
-        deleteBtn.textContent = '🗑';
+        deleteBtn.dataset.icon = BUTTON_ICONS.delete;
+        deleteBtn.textContent = '';
         deleteBtn.title = 'Layer löschen';
         deleteBtn.addEventListener('click', (event) => {
           event.stopPropagation();
@@ -985,6 +1104,19 @@
       updateResizeDrag(evt);
     });
 
+    window.addEventListener('focus', () => {
+      loadAssetLibrary();
+      renderAssetLibrary();
+      updateStatus();
+    });
+
+    window.addEventListener('storage', (event) => {
+      if (event.key !== ASSET_STORAGE_KEY) return;
+      loadAssetLibrary();
+      renderAssetLibrary();
+      updateStatus('Asset-Bibliothek aktualisiert');
+    });
+
     [resizeHandleRight, resizeHandleBottom, resizeHandleCorner].forEach(handle => {
       handle.addEventListener('mousedown', (evt) => {
         startResizeDrag(getResizeHandleDirection(handle), evt);
@@ -995,6 +1127,11 @@
     document.getElementById('undoBtn').addEventListener('click', undo);
     document.getElementById('redoBtn').addEventListener('click', redo);
     document.getElementById('newMapBtn').addEventListener('click', resetMap);
+    document.getElementById('refreshAssetsBtn').addEventListener('click', () => {
+      loadAssetLibrary();
+      renderAssetLibrary();
+      updateStatus('Asset-Bibliothek aktualisiert');
+    });
     document.getElementById('resizeMapBtn').addEventListener('click', resizeMapPreserve);
     document.getElementById('saveJsonBtn').addEventListener('click', saveJson);
     document.getElementById('exportPngBtn').addEventListener('click', exportPng);
@@ -1064,8 +1201,10 @@
         textItems: []
       }];
       state.activeLayerId = 1;
+      loadAssetLibrary();
       renderToolButtons();
       renderTileButtons();
+      renderAssetLibrary();
       renderLayerList();
       resizeCanvas();
       drawMap();

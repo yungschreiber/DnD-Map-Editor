@@ -77,6 +77,10 @@
     ];
 
     const canvas = document.getElementById('mapCanvas');
+    const mapStage = document.getElementById('mapStage');
+    const resizeHandleRight = document.getElementById('resizeHandleRight');
+    const resizeHandleBottom = document.getElementById('resizeHandleBottom');
+    const resizeHandleCorner = document.getElementById('resizeHandleCorner');
     const ctx = canvas.getContext('2d');
     const statusBox = document.getElementById('statusBox');
     const tileButtons = document.getElementById('tileButtons');
@@ -101,7 +105,8 @@
       redoStack: [],
       draggedLayerId: null,
       dropTargetLayerId: null,
-      openTileCategories: new Set(['basic'])
+      openTileCategories: new Set(['basic']),
+      resizeDrag: null
     };
 
     function createEmptyTiles(width, height, fill = 'void') {
@@ -136,6 +141,8 @@
       canvas.height = state.mapHeight * state.tileSize;
       canvas.style.width = `${canvas.width * state.zoom}px`;
       canvas.style.height = `${canvas.height * state.zoom}px`;
+      mapStage.style.width = `${canvas.width * state.zoom + 18}px`;
+      mapStage.style.height = `${canvas.height * state.zoom + 18}px`;
     }
 
     function updateStatus(extra = '') {
@@ -345,6 +352,59 @@
       };
     }
 
+    function syncMapInputs() {
+      document.getElementById('mapWidth').value = state.mapWidth;
+      document.getElementById('mapHeight').value = state.mapHeight;
+      document.getElementById('tileSize').value = state.tileSize;
+    }
+
+    function buildResizedLayers(sourceLayers, sourceWidth, sourceHeight, newWidth, newHeight) {
+      return sourceLayers.map(layer => {
+        const newTiles = createEmptyTiles(newWidth, newHeight, 'void');
+        for (let y = 0; y < Math.min(sourceHeight, newHeight); y++) {
+          for (let x = 0; x < Math.min(sourceWidth, newWidth); x++) {
+            newTiles[y][x] = layer.tiles[y][x];
+          }
+        }
+
+        return {
+          ...layer,
+          tiles: newTiles,
+          textItems: layer.textItems.map(item => ({ ...item }))
+        };
+      });
+    }
+
+    function applyMapResize(newWidth, newHeight, newTileSize = state.tileSize, options = {}) {
+      const width = clamp(newWidth, 4, 200);
+      const height = clamp(newHeight, 4, 200);
+      const tileSize = clamp(newTileSize, 12, 64);
+      const sourceSnapshot = options.sourceSnapshot || {
+        mapWidth: state.mapWidth,
+        mapHeight: state.mapHeight,
+        layers: state.layers.map(layer => ({
+          ...layer,
+          tiles: layer.tiles.map(row => [...row]),
+          textItems: layer.textItems.map(item => ({ ...item }))
+        }))
+      };
+
+      state.layers = buildResizedLayers(
+        sourceSnapshot.layers,
+        sourceSnapshot.mapWidth,
+        sourceSnapshot.mapHeight,
+        width,
+        height
+      );
+      state.mapWidth = width;
+      state.mapHeight = height;
+      state.tileSize = tileSize;
+      syncMapInputs();
+      resizeCanvas();
+      drawMap();
+      updateStatus(options.statusMessage || '');
+    }
+
     function pushHistory() {
       state.history.push(cloneStateSnapshot());
       if (state.history.length > 100) state.history.shift();
@@ -364,9 +424,7 @@
         tiles: layer.tiles.map(row => [...row]),
         textItems: layer.textItems.map(item => ({ ...item }))
       }));
-      document.getElementById('mapWidth').value = state.mapWidth;
-      document.getElementById('mapHeight').value = state.mapHeight;
-      document.getElementById('tileSize').value = state.tileSize;
+      syncMapInputs();
       resizeCanvas();
       renderLayerList();
       drawMap();
@@ -441,10 +499,18 @@
       });
     }
 
+    function refreshLayerDropTarget() {
+      layerList.querySelectorAll('.layer-item').forEach(item => {
+        const layerId = Number(item.dataset.layerId);
+        item.classList.toggle('drop-target', layerId === state.dropTargetLayerId);
+      });
+    }
+
     function renderLayerList() {
       layerList.innerHTML = '';
       state.layers.forEach((layer, index) => {
         const item = document.createElement('div');
+        item.dataset.layerId = String(layer.id);
         item.className = 'layer-item' +
           (layer.id === state.activeLayerId ? ' active' : '') +
           (layer.id === state.dropTargetLayerId ? ' drop-target' : '');
@@ -465,14 +531,22 @@
         item.addEventListener('dragend', () => {
           state.draggedLayerId = null;
           state.dropTargetLayerId = null;
-          renderLayerList();
+          refreshLayerDropTarget();
+          item.classList.remove('dragging');
         });
 
         item.addEventListener('dragover', (event) => {
           event.preventDefault();
-          if (state.draggedLayerId !== layer.id) {
+          if (state.draggedLayerId && state.draggedLayerId !== layer.id && state.dropTargetLayerId !== layer.id) {
             state.dropTargetLayerId = layer.id;
-            renderLayerList();
+            refreshLayerDropTarget();
+          }
+        });
+
+        item.addEventListener('dragleave', (event) => {
+          if (!item.contains(event.relatedTarget) && state.dropTargetLayerId === layer.id) {
+            state.dropTargetLayerId = null;
+            refreshLayerDropTarget();
           }
         });
 
@@ -723,26 +797,10 @@
 
     function resizeMapPreserve() {
       pushHistory();
-      const newWidth = clamp(parseInt(document.getElementById('mapWidth').value, 10) || 30, 4, 200);
-      const newHeight = clamp(parseInt(document.getElementById('mapHeight').value, 10) || 20, 4, 200);
-      const newTileSize = clamp(parseInt(document.getElementById('tileSize').value, 10) || 24, 12, 64);
-
-      state.layers.forEach(layer => {
-        const newTiles = createEmptyTiles(newWidth, newHeight, 'void');
-        for (let y = 0; y < Math.min(state.mapHeight, newHeight); y++) {
-          for (let x = 0; x < Math.min(state.mapWidth, newWidth); x++) {
-            newTiles[y][x] = layer.tiles[y][x];
-          }
-        }
-        layer.tiles = newTiles;
-      });
-
-      state.mapWidth = newWidth;
-      state.mapHeight = newHeight;
-      state.tileSize = newTileSize;
-      resizeCanvas();
-      drawMap();
-      updateStatus();
+      const newWidth = parseInt(document.getElementById('mapWidth').value, 10) || 30;
+      const newHeight = parseInt(document.getElementById('mapHeight').value, 10) || 20;
+      const newTileSize = parseInt(document.getElementById('tileSize').value, 10) || 24;
+      applyMapResize(newWidth, newHeight, newTileSize);
     }
 
     function saveJson() {
@@ -821,6 +879,63 @@
       reader.readAsText(file);
     }
 
+    function getResizeHandleDirection(handle) {
+      if (handle === resizeHandleRight) return 'right';
+      if (handle === resizeHandleBottom) return 'bottom';
+      return 'corner';
+    }
+
+    function startResizeDrag(direction, evt) {
+      evt.preventDefault();
+      evt.stopPropagation();
+      pushHistory();
+      state.resizeDrag = {
+        direction,
+        startClientX: evt.clientX,
+        startClientY: evt.clientY,
+        startWidth: state.mapWidth,
+        startHeight: state.mapHeight,
+        snapshot: cloneStateSnapshot()
+      };
+
+      [resizeHandleRight, resizeHandleBottom, resizeHandleCorner].forEach(handle => {
+        handle.classList.toggle('active', getResizeHandleDirection(handle) === direction);
+      });
+      document.body.style.userSelect = 'none';
+    }
+
+    function updateResizeDrag(evt) {
+      if (!state.resizeDrag) return;
+      const stepSize = state.tileSize * state.zoom;
+      const deltaX = Math.round((evt.clientX - state.resizeDrag.startClientX) / stepSize);
+      const deltaY = Math.round((evt.clientY - state.resizeDrag.startClientY) / stepSize);
+
+      const nextWidth = state.resizeDrag.direction === 'bottom'
+        ? state.resizeDrag.startWidth
+        : state.resizeDrag.startWidth + deltaX;
+      const nextHeight = state.resizeDrag.direction === 'right'
+        ? state.resizeDrag.startHeight
+        : state.resizeDrag.startHeight + deltaY;
+
+      applyMapResize(
+        nextWidth,
+        nextHeight,
+        state.tileSize,
+        {
+          sourceSnapshot: state.resizeDrag.snapshot,
+          statusMessage: `Map-Größe: <strong>${clamp(nextWidth, 4, 200)} × ${clamp(nextHeight, 4, 200)}</strong>`
+        }
+      );
+    }
+
+    function endResizeDrag() {
+      if (!state.resizeDrag) return;
+      state.resizeDrag = null;
+      [resizeHandleRight, resizeHandleBottom, resizeHandleCorner].forEach(handle => handle.classList.remove('active'));
+      document.body.style.userSelect = '';
+      updateStatus('Map-Größe per Ziehen angepasst');
+    }
+
     canvas.addEventListener('mousedown', (evt) => {
       const { x, y } = getGridPos(evt);
       state.hoverCell = { x, y };
@@ -839,6 +954,7 @@
     });
 
     canvas.addEventListener('mousemove', (evt) => {
+      if (state.resizeDrag) return;
       const { x, y } = getGridPos(evt);
       state.hoverCell = { x, y };
       if (state.isDrawing && (state.selectedTool === 'paint' || state.selectedTool === 'erase')) {
@@ -852,6 +968,10 @@
     });
 
     window.addEventListener('mouseup', () => {
+      if (state.resizeDrag) {
+        endResizeDrag();
+        return;
+      }
       if (state.isDrawing && state.dragStart && state.hoverCell && (state.selectedTool === 'rect' || state.selectedTool === 'circle')) {
         pushHistory();
         applyShape(state.dragStart.x, state.dragStart.y, state.hoverCell.x, state.hoverCell.y, state.selectedTool);
@@ -859,6 +979,16 @@
       }
       state.isDrawing = false;
       state.dragStart = null;
+    });
+
+    window.addEventListener('mousemove', (evt) => {
+      updateResizeDrag(evt);
+    });
+
+    [resizeHandleRight, resizeHandleBottom, resizeHandleCorner].forEach(handle => {
+      handle.addEventListener('mousedown', (evt) => {
+        startResizeDrag(getResizeHandleDirection(handle), evt);
+      });
     });
 
     document.getElementById('addLayerBtn').addEventListener('click', addLayer);

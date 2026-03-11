@@ -71,7 +71,12 @@
     </aside>
 
     <main class="canvas-wrap" id="canvasWrap">
-      <canvas id="mapCanvas" width="720" height="480"></canvas>
+      <div class="map-stage" id="mapStage">
+        <canvas id="mapCanvas" width="720" height="480"></canvas>
+        <button class="resize-handle resize-handle-right" id="resizeHandleRight" type="button" aria-label="Map nach rechts ziehen"></button>
+        <button class="resize-handle resize-handle-bottom" id="resizeHandleBottom" type="button" aria-label="Map nach unten ziehen"></button>
+        <button class="resize-handle resize-handle-corner" id="resizeHandleCorner" type="button" aria-label="Map diagonal ziehen"></button>
+      </div>
     </main>
 
     <aside class="rightbar">

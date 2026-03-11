@@ -49,13 +49,18 @@ const assetHeightInput = document.getElementById('assetHeightInput');
 const assetImportInput = document.getElementById('assetImportInput');
 const paletteButtons = document.getElementById('paletteButtons');
 const assetToolButtons = document.getElementById('assetToolButtons');
+const rgbColorInput = document.getElementById('rgbColorInput');
+const rgbRInput = document.getElementById('rgbRInput');
+const rgbGInput = document.getElementById('rgbGInput');
+const rgbBInput = document.getElementById('rgbBInput');
 
 const state = {
-  width: 4,
-  height: 4,
+  width: 20,
+  height: 20,
   cellSize: 32,
   currentTool: 'paint',
   currentColor: '#166534',
+  customColor: '#166534',
   isDrawing: false,
   assetId: null,
   pixels: [],
@@ -72,6 +77,41 @@ function createEmptyPixels(width, height) {
 
 function normalizeColor(color) {
   return color === '#00000000' ? null : color;
+}
+
+function clampRgb(value) {
+  return clamp(parseInt(value, 10) || 0, 0, 255);
+}
+
+function rgbToHex(r, g, b) {
+  return `#${[r, g, b].map(channel => channel.toString(16).padStart(2, '0')).join('')}`;
+}
+
+function hexToRgb(hex) {
+  const normalized = (hex || '#000000').replace('#', '');
+  const safeHex = normalized.length === 6 ? normalized : '000000';
+  return {
+    r: parseInt(safeHex.slice(0, 2), 16),
+    g: parseInt(safeHex.slice(2, 4), 16),
+    b: parseInt(safeHex.slice(4, 6), 16)
+  };
+}
+
+function syncColorInputs() {
+  const sourceColor = state.currentColor === '#00000000' ? state.customColor : state.currentColor;
+  const { r, g, b } = hexToRgb(sourceColor);
+  rgbColorInput.value = sourceColor;
+  rgbRInput.value = r;
+  rgbGInput.value = g;
+  rgbBInput.value = b;
+}
+
+function setCurrentColor(color, options = {}) {
+  state.currentColor = color;
+  if (color !== '#00000000') state.customColor = color;
+  if (options.renderPalette !== false) renderPalette();
+  syncColorInputs();
+  if (options.statusMessage) setStatus(options.statusMessage);
 }
 
 function setStatus(message) {
@@ -154,12 +194,24 @@ function renderPalette() {
       : color;
     btn.title = color === '#00000000' ? 'Transparent' : color;
     btn.addEventListener('click', () => {
-      state.currentColor = color;
-      renderPalette();
+      setCurrentColor(
+        color,
+        { renderPalette: true }
+      );
       setStatus(`Farbe ausgewählt: <strong>${color === '#00000000' ? 'Transparent' : color}</strong>`);
     });
     paletteButtons.appendChild(btn);
   });
+}
+
+function applyRgbInputs() {
+  const nextColor = rgbToHex(
+    clampRgb(rgbRInput.value),
+    clampRgb(rgbGInput.value),
+    clampRgb(rgbBInput.value)
+  );
+  setCurrentColor(nextColor);
+  setStatus(`Farbe: <strong>${nextColor}</strong>`);
 }
 
 function renderTools() {
@@ -322,8 +374,8 @@ function deleteAsset(assetId) {
 }
 
 function applyGridSize() {
-  const nextWidth = clamp(parseInt(assetWidthInput.value, 10) || state.width, 1, 16);
-  const nextHeight = clamp(parseInt(assetHeightInput.value, 10) || state.height, 1, 16);
+  const nextWidth = clamp(parseInt(assetWidthInput.value, 10) || state.width, 1, 30);
+  const nextHeight = clamp(parseInt(assetHeightInput.value, 10) || state.height, 1, 30);
   const nextPixels = createEmptyPixels(nextWidth, nextHeight);
 
   for (let y = 0; y < Math.min(state.height, nextHeight); y++) {
@@ -344,8 +396,8 @@ function applyGridSize() {
 
 function resetEditor() {
   state.assetId = null;
-  state.width = 4;
-  state.height = 4;
+  state.width = 20;
+  state.height = 20;
   state.pixels = createEmptyPixels(state.width, state.height);
   assetNameInput.value = 'Tree Small';
   assetCategoryInput.value = 'Nature';
@@ -411,8 +463,8 @@ function importAssetFile(file) {
         id: asset.id || `${slugify(asset.name || 'asset')}-${Date.now()}`,
         name: asset.name || 'Imported Asset',
         category: asset.category || 'Imported',
-        width: clamp(asset.width, 1, 16),
-        height: clamp(asset.height, 1, 16),
+        width: clamp(asset.width, 1, 30),
+        height: clamp(asset.height, 1, 30),
         pixels: asset.pixels.map(row => row.map(cell => cell || null)),
         updatedAt: new Date().toISOString()
       };

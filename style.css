@@ -273,6 +273,10 @@ label {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.rgb-input-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 #tileButtons {
   display: flex;
   flex-direction: column;
@@ -563,6 +567,12 @@ label {
 .palette-btn.active {
   outline: 2px solid #e6e6e6;
   outline-offset: 2px;
+}
+
+#rgbColorInput {
+  width: 100%;
+  min-height: 42px;
+  padding: 4px;
 }
 
 @media (max-width: 1180px) {

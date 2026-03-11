@@ -45,6 +45,7 @@
         tiles: [
           { id: 'floor', label: 'Floor', color: '#6b7280' },
           { id: 'wall', label: 'Wall', color: '#374151' },
+          { id: 'roof', label: 'Roof', color: '#b5653b' },
           { id: 'door', label: 'Door', color: '#a16207' },
           { id: 'window', label: 'Window', color: '#60a5fa' },
           { id: 'fence', label: 'Fence', color: '#9a6a3f' }
@@ -128,6 +129,10 @@
       resizeDrag: null
     };
 
+    function createEmptyAssetItems() {
+      return [];
+    }
+
     function createEmptyTiles(width, height, fill = 'void') {
       return Array.from({ length: height }, () => Array.from({ length: width }, () => fill));
     }
@@ -139,7 +144,8 @@
         name: `${name} ${id - 1}`,
         visible: true,
         tiles: createEmptyTiles(state.mapWidth, state.mapHeight, 'void'),
-        textItems: []
+        textItems: [],
+        assetItems: createEmptyAssetItems()
       };
     }
 
@@ -177,6 +183,7 @@
         Tile: <strong>${tile.label}</strong><br>
         Kategorie: <strong>${tile.categoryLabel}</strong><br>
         Asset: <strong>${selectedAsset ? selectedAsset.name : '-'}</strong><br>
+        Platzierung: <strong>${selectedAsset && state.selectedTool === 'paint' ? 'Asset-Stempel' : 'Tile'}</strong><br>
         Layer: <strong>${activeLayer?.name || '-'}</strong><br>
         Größe: <strong>${state.mapWidth} × ${state.mapHeight}</strong><br>
         Tile Size: <strong>${state.tileSize}px</strong><br>
@@ -242,6 +249,7 @@
           if (tileId === 'grass' || tileId === 'bush' || tileId === 'trees') shade = noise > 0.75 ? 18 : noise < 0.18 ? -18 : 0;
           else if (tileId === 'water') shade = noise > 0.7 ? 24 : noise < 0.2 ? -20 : 0;
           else if (tileId === 'wood' || tileId === 'fence') shade = (wy % 3 === 0) ? 14 : noise < 0.15 ? -16 : 0;
+          else if (tileId === 'roof') shade = (wy % 2 === 0) ? 18 : noise < 0.2 ? -18 : 0;
           else if (tileId === 'stone' || tileId === 'wall' || tileId === 'stone-floor' || tileId === 'brick-wall' || tileId === 'pillar') shade = noise > 0.8 ? 16 : noise < 0.18 ? -22 : 0;
           else if (tileId === 'sand') shade = noise > 0.7 ? 12 : noise < 0.22 ? -10 : 0;
           else if (tileId === 'dirt' || tileId === 'earth' || tileId === 'trap') shade = noise > 0.75 ? 10 : noise < 0.2 ? -14 : 0;
@@ -297,6 +305,21 @@
         ctx.fillRect(x * size + size * 0.16, y * size + size * 0.38, size * 0.68, size * 0.06);
         ctx.fillRect(x * size + size * 0.16, y * size + size * 0.58, size * 0.68, size * 0.06);
       }
+      if (tileId === 'roof') {
+        ctx.strokeStyle = 'rgba(255,245,235,0.28)';
+        ctx.lineWidth = Math.max(1, size * 0.05);
+        for (let row = 0.24; row <= 0.78; row += 0.18) {
+          ctx.beginPath();
+          ctx.moveTo(x * size + size * 0.12, y * size + size * row);
+          ctx.lineTo(x * size + size * 0.88, y * size + size * row);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = 'rgba(120,53,15,0.32)';
+        ctx.beginPath();
+        ctx.moveTo(x * size + size * 0.5, y * size + size * 0.12);
+        ctx.lineTo(x * size + size * 0.5, y * size + size * 0.88);
+        ctx.stroke();
+      }
       if (tileId === 'trap') {
         ctx.strokeStyle = 'rgba(255,255,255,0.42)';
         ctx.lineWidth = Math.max(1, size * 0.06);
@@ -342,9 +365,64 @@
       ctx.restore();
     }
 
+    function drawAssetPixels(asset, originX, originY, options = {}) {
+      if (!asset) return;
+      const alpha = options.alpha ?? 1;
+      const showOutline = options.showOutline !== false;
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+
+      asset.pixels.forEach((row, rowIndex) => {
+        row.forEach((cell, colIndex) => {
+          if (!cell) return;
+          const targetX = originX + colIndex;
+          const targetY = originY + rowIndex;
+          if (targetX < 0 || targetY < 0 || targetX >= state.mapWidth || targetY >= state.mapHeight) return;
+          ctx.fillStyle = cell;
+          ctx.fillRect(targetX * state.tileSize, targetY * state.tileSize, state.tileSize, state.tileSize);
+        });
+      });
+
+      if (showOutline) {
+        const clippedWidth = Math.max(0, Math.min(asset.width, state.mapWidth - originX));
+        const clippedHeight = Math.max(0, Math.min(asset.height, state.mapHeight - originY));
+        if (clippedWidth > 0 && clippedHeight > 0) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(
+            originX * state.tileSize + 0.5,
+            originY * state.tileSize + 0.5,
+            clippedWidth * state.tileSize - 1,
+            clippedHeight * state.tileSize - 1
+          );
+        }
+      }
+
+      ctx.restore();
+    }
+
+    function drawLayerAssets(layer) {
+      if (!layer.visible || !Array.isArray(layer.assetItems)) return;
+      layer.assetItems.forEach(item => {
+        drawAssetPixels(item.asset, item.x, item.y, { alpha: 1, showOutline: false });
+      });
+    }
+
+    function getAssetAnchorPosition(cursorX, cursorY, asset) {
+      if (!asset) return { x: cursorX, y: cursorY };
+      return {
+        x: cursorX - Math.floor(asset.width / 2),
+        y: cursorY - Math.floor(asset.height / 2)
+      };
+    }
+
     function drawMap(preview = null) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      state.layers.forEach(layer => drawLayerTiles(layer));
+      state.layers.forEach(layer => {
+        drawLayerTiles(layer);
+        drawLayerAssets(layer);
+      });
 
       if (preview && (preview.tool === 'rect' || preview.tool === 'circle')) {
         ctx.save();
@@ -354,6 +432,11 @@
           ctx.fillRect(x * state.tileSize, y * state.tileSize, state.tileSize, state.tileSize);
         });
         ctx.restore();
+      }
+
+      if (preview && preview.tool === 'asset' && preview.asset) {
+        const anchor = getAssetAnchorPosition(preview.x, preview.y, preview.asset);
+        drawAssetPixels(preview.asset, anchor.x, anchor.y, { alpha: 0.7, showOutline: true });
       }
 
       drawTextItems();
@@ -372,7 +455,15 @@
           name: layer.name,
           visible: layer.visible,
           tiles: layer.tiles.map(row => [...row]),
-          textItems: layer.textItems.map(item => ({ ...item }))
+          textItems: layer.textItems.map(item => ({ ...item })),
+          assetItems: (layer.assetItems || []).map(item => ({
+            x: item.x,
+            y: item.y,
+            asset: {
+              ...item.asset,
+              pixels: item.asset.pixels.map(row => [...row])
+            }
+          }))
         }))
       };
     }
@@ -395,7 +486,17 @@
         return {
           ...layer,
           tiles: newTiles,
-          textItems: layer.textItems.map(item => ({ ...item }))
+          textItems: layer.textItems.map(item => ({ ...item })),
+          assetItems: (layer.assetItems || [])
+            .filter(item => item.x < newWidth && item.y < newHeight)
+            .map(item => ({
+              x: item.x,
+              y: item.y,
+              asset: {
+                ...item.asset,
+                pixels: item.asset.pixels.map(row => [...row])
+              }
+            }))
         };
       });
     }
@@ -447,7 +548,15 @@
         name: layer.name,
         visible: layer.visible,
         tiles: layer.tiles.map(row => [...row]),
-        textItems: layer.textItems.map(item => ({ ...item }))
+        textItems: layer.textItems.map(item => ({ ...item })),
+        assetItems: (layer.assetItems || []).map(item => ({
+          x: item.x,
+          y: item.y,
+          asset: {
+            ...item.asset,
+            pixels: item.asset.pixels.map(row => [...row])
+          }
+        }))
       }));
       syncMapInputs();
       resizeCanvas();
@@ -497,9 +606,12 @@
           btn.innerHTML = `<span class="swatch" style="background:${tile.color}"></span><span>${tile.label}</span>`;
           btn.addEventListener('click', () => {
             state.selectedTile = tile.id;
+            state.selectedAssetId = null;
             state.openTileCategories.add(category.id);
             renderTileButtons();
+            renderAssetLibrary();
             updateStatus();
+            drawMap();
           });
           grid.appendChild(btn);
         });
@@ -519,6 +631,7 @@
         btn.addEventListener('click', () => {
           state.selectedTool = tool.id;
           renderToolButtons();
+          drawMap();
           updateStatus();
         });
         toolButtons.appendChild(btn);
@@ -817,6 +930,36 @@
       layer.tiles[y][x] = tileId;
     }
 
+    function placeAsset(x, y, asset) {
+      const layer = getActiveLayer();
+      if (!layer || !asset) return;
+      if (!Array.isArray(layer.assetItems)) layer.assetItems = createEmptyAssetItems();
+      const anchor = getAssetAnchorPosition(x, y, asset);
+      layer.assetItems.push({
+        x: anchor.x,
+        y: anchor.y,
+        asset: {
+          ...asset,
+          pixels: asset.pixels.map(row => [...row])
+        }
+      });
+    }
+
+    function eraseAt(x, y) {
+      const layer = getActiveLayer();
+      if (!layer) return;
+      setTile(x, y, 'void');
+
+      if (!Array.isArray(layer.assetItems) || !layer.assetItems.length) return;
+      layer.assetItems = layer.assetItems.filter(item => {
+        const withinX = x >= item.x && x < item.x + item.asset.width;
+        const withinY = y >= item.y && y < item.y + item.asset.height;
+        if (!withinX || !withinY) return true;
+        const assetPixel = item.asset.pixels[y - item.y]?.[x - item.x];
+        return !assetPixel;
+      });
+    }
+
     function applyShapeToGrid(startX, startY, endX, endY, shape, callback) {
       const minX = Math.min(startX, endX);
       const maxX = Math.max(startX, endX);
@@ -879,8 +1022,10 @@
     }
 
     function applyTool(x, y) {
-      if (state.selectedTool === 'paint') setTile(x, y, state.selectedTile);
-      else if (state.selectedTool === 'erase') setTile(x, y, 'void');
+      const selectedAsset = getSelectedAsset();
+      if (state.selectedTool === 'paint' && selectedAsset) placeAsset(x, y, selectedAsset);
+      else if (state.selectedTool === 'paint') setTile(x, y, state.selectedTile);
+      else if (state.selectedTool === 'erase') eraseAt(x, y);
       else if (state.selectedTool === 'fill') floodFill(x, y, state.selectedTile);
       else if (state.selectedTool === 'text') addTextItem(x, y);
       drawMap();
@@ -904,7 +1049,8 @@
         name: 'Layer 1',
         visible: true,
         tiles: createEmptyTiles(state.mapWidth, state.mapHeight, 'void'),
-        textItems: []
+        textItems: [],
+        assetItems: createEmptyAssetItems()
       }];
       state.activeLayerId = 1;
       state.nextLayerId = 2;
@@ -965,7 +1111,15 @@
               name: layer.name || `Layer ${layer.id}`,
               visible: layer.visible !== false,
               tiles: layer.tiles,
-              textItems: Array.isArray(layer.textItems) ? layer.textItems : []
+              textItems: Array.isArray(layer.textItems) ? layer.textItems : [],
+              assetItems: Array.isArray(layer.assetItems) ? layer.assetItems.map(item => ({
+                x: item.x,
+                y: item.y,
+                asset: {
+                  ...item.asset,
+                  pixels: Array.isArray(item.asset?.pixels) ? item.asset.pixels.map(row => [...row]) : []
+                }
+              })) : []
             }));
           } else if (Array.isArray(data.tiles)) {
             state.mapWidth = data.mapWidth;
@@ -976,7 +1130,8 @@
               name: 'Layer 1',
               visible: true,
               tiles: data.tiles,
-              textItems: Array.isArray(data.textItems) ? data.textItems : []
+              textItems: Array.isArray(data.textItems) ? data.textItems : [],
+              assetItems: []
             }];
             state.activeLayerId = 1;
             state.nextLayerId = 2;
@@ -1067,7 +1222,7 @@
       }
 
       pushHistory();
-      state.isDrawing = true;
+      state.isDrawing = state.selectedTool === 'paint' && !getSelectedAsset();
       applyTool(x, y);
       if (state.selectedTool === 'fill' || state.selectedTool === 'text') state.isDrawing = false;
     });
@@ -1081,9 +1236,18 @@
       } else if (state.isDrawing && (state.selectedTool === 'rect' || state.selectedTool === 'circle') && state.dragStart) {
         drawMap({ tool: state.selectedTool, start: state.dragStart, end: { x, y } });
         updateStatus(`Cursor: <strong>${x}, ${y}</strong>`);
+      } else if (state.selectedTool === 'paint' && getSelectedAsset()) {
+        drawMap({ tool: 'asset', asset: getSelectedAsset(), x, y });
+        updateStatus(`Cursor: <strong>${x}, ${y}</strong>`);
       } else {
         updateStatus(`Cursor: <strong>${x}, ${y}</strong>`);
       }
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      state.hoverCell = null;
+      if (!state.isDrawing) drawMap();
+      updateStatus();
     });
 
     window.addEventListener('mouseup', () => {
@@ -1137,6 +1301,28 @@
     document.getElementById('exportPngBtn').addEventListener('click', exportPng);
     document.getElementById('jsonFileInput').addEventListener('change', (e) => loadJsonFile(e.target.files[0]));
 
+    assetLibraryList.addEventListener('click', (event) => {
+      const button = event.target.closest('.asset-card-actions button');
+      if (!button) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+
+      const card = event.target.closest('.asset-card');
+      const cards = Array.from(assetLibraryList.querySelectorAll('.asset-card'));
+      const asset = state.assetLibrary[cards.indexOf(card)];
+      if (!asset) return;
+
+      state.selectedAssetId = state.selectedAssetId === asset.id ? null : asset.id;
+      state.selectedTool = 'paint';
+      renderAssetLibrary();
+      renderToolButtons();
+      drawMap();
+      updateStatus(state.selectedAssetId
+        ? `Asset ausgewaehlt: <strong>${asset.name}</strong>`
+        : 'Asset-Auswahl aufgehoben');
+    }, true);
+
     document.getElementById('toggleGridBtn').addEventListener('click', (e) => {
       state.showGrid = !state.showGrid;
       e.target.classList.toggle('active', state.showGrid);
@@ -1189,6 +1375,7 @@
       if (e.key === '-') state.zoom = clamp(Number((state.zoom - 0.25).toFixed(2)), 0.5, 4);
       renderToolButtons();
       resizeCanvas();
+      drawMap();
       updateStatus();
     });
 
@@ -1198,7 +1385,8 @@
         name: 'Layer 1',
         visible: true,
         tiles: createEmptyTiles(state.mapWidth, state.mapHeight, 'void'),
-        textItems: []
+        textItems: [],
+        assetItems: createEmptyAssetItems()
       }];
       state.activeLayerId = 1;
       loadAssetLibrary();

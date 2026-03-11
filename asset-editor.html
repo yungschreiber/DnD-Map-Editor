@@ -14,16 +14,22 @@
     <header class="topbar">
       <div class="group brand-group">
         <div class="brand">Grid Asset Editor</div>
-        <a class="nav-link-button" href="index.html" data-icon="◇">Zur Map</a>
+        <a class="nav-link-button" href="index.html" data-icon="map">Zur Map</a>
       </div>
       <div class="group">
         <button id="newAssetBtn" type="button" data-icon="+">Neues Asset</button>
-        <button id="saveAssetBtn" type="button" data-icon="↓">Asset speichern</button>
-        <button id="exportAssetBtn" type="button" data-icon="⇱">JSON exportieren</button>
+        <button id="saveAssetBtn" type="button" data-icon="save">Asset speichern</button>
+        <button id="exportAssetBtn" type="button" data-icon="exp">JSON exportieren</button>
+        <button id="toggleAssetGridBtn" class="active" type="button" data-icon="grid">Grid an</button>
       </div>
     </header>
 
     <aside class="asset-sidebar">
+      <section class="section">
+        <h2 class="panel-title">Werkzeuge</h2>
+        <div class="asset-tool-grid" id="assetToolButtons"></div>
+      </section>
+
       <section class="section">
         <h2 class="panel-title">Asset</h2>
         <div class="field">
@@ -44,12 +50,7 @@
             <input id="assetHeightInput" type="number" min="1" max="30" value="20" />
           </div>
         </div>
-        <button id="applyGridBtn" type="button" data-icon="↔">Raster anwenden</button>
-      </section>
-
-      <section class="section">
-        <h2 class="panel-title">Tools</h2>
-        <div class="asset-tool-grid" id="assetToolButtons"></div>
+        <button id="applyGridBtn" type="button" data-icon="resize">Raster anwenden</button>
       </section>
 
       <section class="section">
@@ -84,8 +85,17 @@
       </section>
 
       <section>
-        <h2 class="panel-title">Status</h2>
-        <div class="asset-status" id="assetStatus"></div>
+        <h2 class="panel-title">Shortcuts</h2>
+        <div class="hint">
+          <div><span class="kbd">1</span> Pinsel</div>
+          <div><span class="kbd">2</span> Radierer</div>
+          <div><span class="kbd">3</span> Fill</div>
+          <div><span class="kbd">4</span> Rechteck</div>
+          <div><span class="kbd">5</span> Kreis</div>
+          <div><span class="kbd">6</span> Pipette</div>
+          <div><span class="kbd">G</span> Grid</div>
+          <div><span class="kbd">+</span> / <span class="kbd">-</span> Zoom</div>
+        </div>
       </section>
     </aside>
 
@@ -107,7 +117,22 @@
         <h2 class="panel-title">Tiles</h2>
         <div id="assetTileButtons"></div>
       </section>
+
+      <section class="section">
+        <h2 class="panel-title">Ansicht</h2>
+        <div class="group">
+          <button id="assetZoomOutBtn" type="button" data-icon="-">Zoom</button>
+          <button id="assetZoomResetBtn" type="button" data-icon="100">100%</button>
+          <button id="assetZoomInBtn" type="button" data-icon="+">Zoom</button>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="panel-title">Status</h2>
+        <div class="asset-status" id="assetStatus"></div>
+      </section>
     </aside>
+
     <aside class="asset-library">
       <section class="section">
         <h2 class="panel-title">Bibliothek</h2>

@@ -274,6 +274,21 @@
         ctx.lineTo(state.mapWidth * state.tileSize, y * state.tileSize + 0.5);
         ctx.stroke();
       }
+
+      const crossSize = Math.max(3, Math.floor(state.tileSize * 0.18));
+      ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+      for (let x = 0; x <= state.mapWidth; x += 2) {
+        for (let y = 0; y <= state.mapHeight; y += 2) {
+          const px = x * state.tileSize + 0.5;
+          const py = y * state.tileSize + 0.5;
+          ctx.beginPath();
+          ctx.moveTo(px - crossSize, py);
+          ctx.lineTo(px + crossSize, py);
+          ctx.moveTo(px, py - crossSize);
+          ctx.lineTo(px, py + crossSize);
+          ctx.stroke();
+        }
+      }
     }
 
     function hash2D(x, y, seed = 0) {

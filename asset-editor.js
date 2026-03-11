@@ -109,6 +109,8 @@ const state = {
   width: 20,
   height: 20,
   cellSize: 32,
+  zoom: 1,
+  showGrid: true,
   currentTool: 'paint',
   currentColor: '#166534',
   currentTileId: null,
@@ -193,6 +195,16 @@ function setStatus(message) {
   assetStatus.innerHTML = message;
 }
 
+function updateStatus(extra = '') {
+  setStatus(`
+    Tool: <strong>${TOOL_DEFS.find(tool => tool.id === state.currentTool)?.label || '-'}</strong><br>
+    Größe: <strong>${state.width} x ${state.height}</strong><br>
+    Grid: <strong>${state.showGrid ? 'an' : 'aus'}</strong><br>
+    Zoom: <strong>${Math.round(state.zoom * 100)}%</strong><br>
+    ${extra}
+  `);
+}
+
 function syncInputs() {
   assetWidthInput.value = state.width;
   assetHeightInput.value = state.height;
@@ -201,8 +213,8 @@ function syncInputs() {
 function resizeEditorCanvas() {
   canvas.width = state.width * state.cellSize;
   canvas.height = state.height * state.cellSize;
-  canvas.style.width = `${canvas.width}px`;
-  canvas.style.height = `${canvas.height}px`;
+  canvas.style.width = `${canvas.width * state.zoom}px`;
+  canvas.style.height = `${canvas.height * state.zoom}px`;
 }
 
 function drawEditor(preview = null) {
@@ -229,20 +241,37 @@ function drawEditor(preview = null) {
     ctx.restore();
   }
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
-  ctx.lineWidth = 1;
-  for (let x = 0; x <= state.width; x++) {
-    ctx.beginPath();
-    ctx.moveTo(x * state.cellSize + 0.5, 0);
-    ctx.lineTo(x * state.cellSize + 0.5, canvas.height);
-    ctx.stroke();
-  }
+  if (state.showGrid) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= state.width; x++) {
+      ctx.beginPath();
+      ctx.moveTo(x * state.cellSize + 0.5, 0);
+      ctx.lineTo(x * state.cellSize + 0.5, canvas.height);
+      ctx.stroke();
+    }
 
-  for (let y = 0; y <= state.height; y++) {
-    ctx.beginPath();
-    ctx.moveTo(0, y * state.cellSize + 0.5);
-    ctx.lineTo(canvas.width, y * state.cellSize + 0.5);
-    ctx.stroke();
+    for (let y = 0; y <= state.height; y++) {
+      ctx.beginPath();
+      ctx.moveTo(0, y * state.cellSize + 0.5);
+      ctx.lineTo(canvas.width, y * state.cellSize + 0.5);
+      ctx.stroke();
+    }
+
+    const crossSize = Math.max(3, Math.floor(state.cellSize * 0.18));
+    ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+    for (let x = 0; x <= state.width; x += 2) {
+      for (let y = 0; y <= state.height; y += 2) {
+        const px = x * state.cellSize + 0.5;
+        const py = y * state.cellSize + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(px - crossSize, py);
+        ctx.lineTo(px + crossSize, py);
+        ctx.moveTo(px, py - crossSize);
+        ctx.lineTo(px, py + crossSize);
+        ctx.stroke();
+      }
+    }
   }
 }
 
@@ -296,7 +325,7 @@ function applyRgbInputs() {
     clampRgb(rgbBInput.value)
   );
   setCurrentColor(nextColor);
-  setStatus(`Farbe: <strong>${nextColor}</strong>`);
+  updateStatus(`Farbe: <strong>${nextColor}</strong>`);
 }
 
 function renderAssetTiles() {
@@ -542,8 +571,8 @@ function resetEditor() {
 
 function getCellFromEvent(evt) {
   const rect = canvas.getBoundingClientRect();
-  const x = Math.floor((evt.clientX - rect.left) / state.cellSize);
-  const y = Math.floor((evt.clientY - rect.top) / state.cellSize);
+  const x = Math.floor((evt.clientX - rect.left) / (state.cellSize * state.zoom));
+  const y = Math.floor((evt.clientY - rect.top) / (state.cellSize * state.zoom));
   return {
     x: clamp(x, 0, state.width - 1),
     y: clamp(y, 0, state.height - 1)
@@ -699,6 +728,48 @@ rgbColorInput.addEventListener('input', () => {
 rgbRInput.addEventListener('input', applyRgbInputs);
 rgbGInput.addEventListener('input', applyRgbInputs);
 rgbBInput.addEventListener('input', applyRgbInputs);
+document.getElementById('toggleAssetGridBtn').addEventListener('click', (event) => {
+  state.showGrid = !state.showGrid;
+  event.target.classList.toggle('active', state.showGrid);
+  event.target.textContent = state.showGrid ? 'Grid an' : 'Grid aus';
+  drawEditor();
+  updateStatus();
+});
+document.getElementById('assetZoomInBtn').addEventListener('click', () => {
+  state.zoom = clamp(Number((state.zoom + 0.25).toFixed(2)), 0.5, 4);
+  resizeEditorCanvas();
+  updateStatus();
+});
+document.getElementById('assetZoomOutBtn').addEventListener('click', () => {
+  state.zoom = clamp(Number((state.zoom - 0.25).toFixed(2)), 0.5, 4);
+  resizeEditorCanvas();
+  updateStatus();
+});
+document.getElementById('assetZoomResetBtn').addEventListener('click', () => {
+  state.zoom = 1;
+  resizeEditorCanvas();
+  updateStatus();
+});
+
+window.addEventListener('keydown', (event) => {
+  if (event.target.tagName === 'INPUT') return;
+  if (event.key === '1') state.currentTool = 'paint';
+  if (event.key === '2') state.currentTool = 'erase';
+  if (event.key === '3') state.currentTool = 'fill';
+  if (event.key === '4') state.currentTool = 'rect';
+  if (event.key === '5') state.currentTool = 'circle';
+  if (event.key === '6') state.currentTool = 'picker';
+  if (event.key.toLowerCase() === 'g') {
+    document.getElementById('toggleAssetGridBtn').click();
+    return;
+  }
+  if (event.key === '+') state.zoom = clamp(Number((state.zoom + 0.25).toFixed(2)), 0.5, 4);
+  if (event.key === '-') state.zoom = clamp(Number((state.zoom - 0.25).toFixed(2)), 0.5, 4);
+  renderTools();
+  resizeEditorCanvas();
+  drawEditor();
+  updateStatus();
+});
 
 function init() {
   loadAssetsFromStorage();
@@ -712,7 +783,7 @@ function init() {
   resizeEditorCanvas();
   drawEditor();
   drawPreview();
-  setStatus('Rasterbasierter Asset-Editor bereit');
+  updateStatus('Rasterbasierter Asset-Editor bereit');
 }
 
 init();

@@ -114,6 +114,7 @@
       selectedTile: 'stone',
       selectedTool: 'paint',
       selectedAssetId: null,
+      selectedAssetRotation: 0,
       isDrawing: false,
       dragStart: null,
       hoverCell: null,
@@ -157,6 +158,70 @@
       return state.assetLibrary.find(asset => asset.id === state.selectedAssetId) || null;
     }
 
+    function sanitizeAssetDefinition(asset) {
+      if (!asset || !Array.isArray(asset.pixels)) return null;
+      const width = clamp(parseInt(asset.width, 10) || 0, 1, 64);
+      const height = clamp(parseInt(asset.height, 10) || 0, 1, 64);
+      if (!width || !height) return null;
+
+      const pixels = Array.from({ length: height }, (_, y) =>
+        Array.from({ length: width }, (_, x) => asset.pixels[y]?.[x] || null)
+      );
+
+      return {
+        ...asset,
+        width,
+        height,
+        pixels
+      };
+    }
+
+    function normalizeRotation(rotation) {
+      return ((rotation % 4) + 4) % 4;
+    }
+
+    function rotateAsset(asset, rotation = 0) {
+      if (!asset) return null;
+      const normalized = normalizeRotation(rotation);
+      if (normalized === 0) {
+        return {
+          ...asset,
+          width: asset.width,
+          height: asset.height,
+          pixels: asset.pixels.map(row => [...row])
+        };
+      }
+
+      const source = asset.pixels.map(row => [...row]);
+      if (normalized === 1) {
+        return {
+          ...asset,
+          width: asset.height,
+          height: asset.width,
+          pixels: Array.from({ length: asset.width }, (_, y) =>
+            Array.from({ length: asset.height }, (_, x) => source[asset.height - 1 - x][y] || null))
+        };
+      }
+
+      if (normalized === 2) {
+        return {
+          ...asset,
+          width: asset.width,
+          height: asset.height,
+          pixels: Array.from({ length: asset.height }, (_, y) =>
+            Array.from({ length: asset.width }, (_, x) => source[asset.height - 1 - y][asset.width - 1 - x] || null))
+        };
+      }
+
+      return {
+        ...asset,
+        width: asset.height,
+        height: asset.width,
+        pixels: Array.from({ length: asset.width }, (_, y) =>
+          Array.from({ length: asset.height }, (_, x) => source[x][asset.width - 1 - y] || null))
+      };
+    }
+
     function clamp(value, min, max) {
       return Math.min(max, Math.max(min, value));
     }
@@ -184,6 +249,7 @@
         Kategorie: <strong>${tile.categoryLabel}</strong><br>
         Asset: <strong>${selectedAsset ? selectedAsset.name : '-'}</strong><br>
         Platzierung: <strong>${selectedAsset && state.selectedTool === 'paint' ? 'Asset-Stempel' : 'Tile'}</strong><br>
+        Rotation: <strong>${selectedAsset ? state.selectedAssetRotation * 90 : 0}°</strong><br>
         Layer: <strong>${activeLayer?.name || '-'}</strong><br>
         Größe: <strong>${state.mapWidth} × ${state.mapHeight}</strong><br>
         Tile Size: <strong>${state.tileSize}px</strong><br>
@@ -354,7 +420,7 @@
     function drawTextItems() {
       ctx.save();
       ctx.textBaseline = 'top';
-      state.layers.forEach(layer => {
+      [...state.layers].reverse().forEach(layer => {
         if (!layer.visible) return;
         layer.textItems.forEach(item => {
           ctx.font = `${item.size}px Inter, system-ui, sans-serif`;
@@ -419,7 +485,7 @@
 
     function drawMap(preview = null) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      state.layers.forEach(layer => {
+      [...state.layers].reverse().forEach(layer => {
         drawLayerTiles(layer);
         drawLayerAssets(layer);
       });
@@ -435,8 +501,9 @@
       }
 
       if (preview && preview.tool === 'asset' && preview.asset) {
-        const anchor = getAssetAnchorPosition(preview.x, preview.y, preview.asset);
-        drawAssetPixels(preview.asset, anchor.x, anchor.y, { alpha: 0.7, showOutline: true });
+        const rotatedAsset = rotateAsset(preview.asset, preview.rotation || 0);
+        const anchor = getAssetAnchorPosition(preview.x, preview.y, rotatedAsset);
+        drawAssetPixels(rotatedAsset, anchor.x, anchor.y, { alpha: 0.7, showOutline: true });
       }
 
       drawTextItems();
@@ -607,6 +674,7 @@
           btn.addEventListener('click', () => {
             state.selectedTile = tile.id;
             state.selectedAssetId = null;
+            state.selectedAssetRotation = 0;
             state.openTileCategories.add(category.id);
             renderTileButtons();
             renderAssetLibrary();
@@ -640,13 +708,16 @@
 
     function loadAssetLibrary() {
       try {
-        state.assetLibrary = JSON.parse(localStorage.getItem(ASSET_STORAGE_KEY) || '[]');
+        state.assetLibrary = JSON.parse(localStorage.getItem(ASSET_STORAGE_KEY) || '[]')
+          .map(sanitizeAssetDefinition)
+          .filter(Boolean);
       } catch {
         state.assetLibrary = [];
       }
 
       if (state.selectedAssetId && !state.assetLibrary.some(asset => asset.id === state.selectedAssetId)) {
         state.selectedAssetId = null;
+        state.selectedAssetRotation = 0;
       }
     }
 
@@ -690,6 +761,15 @@
       state.assetLibrary.forEach(asset => {
         const card = document.createElement('div');
         card.className = 'asset-card' + (asset.id === state.selectedAssetId ? ' active' : '');
+        card.addEventListener('click', () => {
+          state.selectedAssetId = asset.id;
+          state.selectedAssetRotation = 0;
+          state.selectedTool = 'paint';
+          renderAssetLibrary();
+          renderToolButtons();
+          drawMap();
+          updateStatus(`Asset ausgewählt: <strong>${asset.name}</strong>`);
+        });
 
         const head = document.createElement('div');
         head.className = 'asset-card-head';
@@ -718,6 +798,7 @@
         selectBtn.className = asset.id === state.selectedAssetId ? 'active' : '';
         selectBtn.addEventListener('click', () => {
           state.selectedAssetId = asset.id;
+          state.selectedAssetRotation = 0;
           renderAssetLibrary();
           updateStatus(`Asset ausgewählt: <strong>${asset.name}</strong>`);
         });
@@ -934,13 +1015,14 @@
       const layer = getActiveLayer();
       if (!layer || !asset) return;
       if (!Array.isArray(layer.assetItems)) layer.assetItems = createEmptyAssetItems();
-      const anchor = getAssetAnchorPosition(x, y, asset);
+      const rotatedAsset = rotateAsset(asset, state.selectedAssetRotation);
+      const anchor = getAssetAnchorPosition(x, y, rotatedAsset);
       layer.assetItems.push({
         x: anchor.x,
         y: anchor.y,
         asset: {
-          ...asset,
-          pixels: asset.pixels.map(row => [...row])
+          ...rotatedAsset,
+          pixels: rotatedAsset.pixels.map(row => [...row])
         }
       });
     }
@@ -1237,7 +1319,7 @@
         drawMap({ tool: state.selectedTool, start: state.dragStart, end: { x, y } });
         updateStatus(`Cursor: <strong>${x}, ${y}</strong>`);
       } else if (state.selectedTool === 'paint' && getSelectedAsset()) {
-        drawMap({ tool: 'asset', asset: getSelectedAsset(), x, y });
+        drawMap({ tool: 'asset', asset: getSelectedAsset(), x, y, rotation: state.selectedAssetRotation });
         updateStatus(`Cursor: <strong>${x}, ${y}</strong>`);
       } else {
         updateStatus(`Cursor: <strong>${x}, ${y}</strong>`);
@@ -1314,6 +1396,7 @@
       if (!asset) return;
 
       state.selectedAssetId = state.selectedAssetId === asset.id ? null : asset.id;
+      state.selectedAssetRotation = 0;
       state.selectedTool = 'paint';
       renderAssetLibrary();
       renderToolButtons();
@@ -1367,6 +1450,12 @@
       if (e.key === '4') state.selectedTool = 'rect';
       if (e.key === '5') state.selectedTool = 'circle';
       if (e.key === '6') state.selectedTool = 'text';
+      if (e.key.toLowerCase() === 'q' && getSelectedAsset() && state.selectedTool === 'paint') {
+        state.selectedAssetRotation = normalizeRotation(state.selectedAssetRotation - 1);
+      }
+      if (e.key.toLowerCase() === 'e' && getSelectedAsset() && state.selectedTool === 'paint') {
+        state.selectedAssetRotation = normalizeRotation(state.selectedAssetRotation + 1);
+      }
       if (e.key.toLowerCase() === 'g') {
         document.getElementById('toggleGridBtn').click();
         return;

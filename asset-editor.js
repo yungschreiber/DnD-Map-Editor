@@ -134,6 +134,24 @@ function normalizeColor(color) {
   return color === '#00000000' ? null : color;
 }
 
+function sanitizeAssetDefinition(asset) {
+  if (!asset || !Array.isArray(asset.pixels)) return null;
+  const width = clamp(parseInt(asset.width, 10) || 0, 1, 30);
+  const height = clamp(parseInt(asset.height, 10) || 0, 1, 30);
+  if (!width || !height) return null;
+
+  const pixels = Array.from({ length: height }, (_, y) =>
+    Array.from({ length: width }, (_, x) => asset.pixels[y]?.[x] || null)
+  );
+
+  return {
+    ...asset,
+    width,
+    height,
+    pixels
+  };
+}
+
 function clampRgb(value) {
   return clamp(parseInt(value, 10) || 0, 0, 255);
 }
@@ -408,7 +426,9 @@ function saveAssets() {
 
 function loadAssetsFromStorage() {
   try {
-    state.assets = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    state.assets = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+      .map(sanitizeAssetDefinition)
+      .filter(Boolean);
   } catch {
     state.assets = [];
   }

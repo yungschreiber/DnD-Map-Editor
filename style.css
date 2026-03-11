@@ -28,6 +28,10 @@ body {
   overflow: hidden;
 }
 
+body.asset-page {
+  overflow: auto;
+}
+
 a {
   color: inherit;
 }
@@ -44,6 +48,7 @@ a {
   grid-template-columns: 280px 1fr 280px 320px;
   grid-template-rows: 64px 1fr;
   height: 100vh;
+  min-width: 1540px;
 }
 
 .topbar {
@@ -135,6 +140,7 @@ a {
 .asset-stage {
   flex-direction: column;
   gap: 16px;
+  min-width: 720px;
 }
 
 .map-stage {

@@ -1,4 +1,4 @@
-    const TILE_TYPES = [
+    const LEGACY_TILE_TYPES = [
       { id: 'floor', label: 'Boden', color: '#6b7280' },
       { id: 'wall', label: 'Wand', color: '#374151' },
       { id: 'water', label: 'Wasser', color: '#2563eb' },
@@ -13,6 +13,59 @@
       { id: 'stone', label: 'Stein', color: '#94a3b8' },
       { id: 'void', label: 'Leer', color: '#111827' }
     ];
+
+    const TILE_CATEGORIES = [
+      {
+        id: 'basic',
+        label: 'BASIC',
+        tiles: [
+          { id: 'stone', label: 'Stone', color: '#8f9aa8' },
+          { id: 'wood', label: 'Wood', color: '#8b5a2b' },
+          { id: 'earth', label: 'Earth', color: '#7a5a3a' },
+          { id: 'sand', label: 'Sand', color: '#d4b36a' },
+          { id: 'water', label: 'Water', color: '#2563eb' }
+        ]
+      },
+      {
+        id: 'nature',
+        label: 'NATURE',
+        tiles: [
+          { id: 'grass', label: 'Grass', color: '#16a34a' },
+          { id: 'trees', label: 'Trees', color: '#166534' },
+          { id: 'bush', label: 'Bush', color: '#3f9b4a' },
+          { id: 'dirt', label: 'Dirt', color: '#7c4a2d' },
+          { id: 'lava', label: 'Lava', color: '#dc2626' }
+        ]
+      },
+      {
+        id: 'village',
+        label: 'VILLAGE',
+        tiles: [
+          { id: 'floor', label: 'Floor', color: '#6b7280' },
+          { id: 'wall', label: 'Wall', color: '#374151' },
+          { id: 'door', label: 'Door', color: '#a16207' },
+          { id: 'window', label: 'Window', color: '#60a5fa' },
+          { id: 'fence', label: 'Fence', color: '#9a6a3f' }
+        ]
+      },
+      {
+        id: 'dungeon',
+        label: 'DUNGEON',
+        tiles: [
+          { id: 'stone-floor', label: 'Stone Floor', color: '#717c88' },
+          { id: 'brick-wall', label: 'Brick Wall', color: '#5c4b51' },
+          { id: 'stairs', label: 'Stairs', color: '#9ca3af' },
+          { id: 'trap', label: 'Trap', color: '#b91c1c' },
+          { id: 'pillar', label: 'Pillar', color: '#94a3b8' }
+        ]
+      }
+    ];
+
+    const TILE_TYPES = TILE_CATEGORIES.flatMap(category =>
+      category.tiles.map(tile => ({ ...tile, categoryId: category.id, categoryLabel: category.label }))
+    );
+    TILE_TYPES.push({ id: 'void', label: 'Leer', color: '#111827', categoryId: 'system', categoryLabel: 'System' });
+    const TILE_MAP = new Map(TILE_TYPES.map(tile => [tile.id, tile]));
 
     const TOOLS = [
       { id: 'paint', label: 'Pinsel' },
@@ -36,7 +89,7 @@
       tileSize: 24,
       zoom: 1,
       showGrid: true,
-      selectedTile: 'floor',
+      selectedTile: 'stone',
       selectedTool: 'paint',
       isDrawing: false,
       dragStart: null,
@@ -47,7 +100,8 @@
       history: [],
       redoStack: [],
       draggedLayerId: null,
-      dropTargetLayerId: null
+      dropTargetLayerId: null,
+      openTileCategories: new Set(['basic'])
     };
 
     function createEmptyTiles(width, height, fill = 'void') {
@@ -74,7 +128,7 @@
     }
 
     function getTileDef(id) {
-      return TILE_TYPES.find(t => t.id === id) || TILE_TYPES[0];
+      return TILE_MAP.get(id) || TILE_TYPES[0];
     }
 
     function resizeCanvas() {
@@ -90,6 +144,7 @@
       statusBox.innerHTML = `
         Tool: <strong>${TOOLS.find(t => t.id === state.selectedTool)?.label}</strong><br>
         Tile: <strong>${tile.label}</strong><br>
+        Kategorie: <strong>${tile.categoryLabel}</strong><br>
         Layer: <strong>${activeLayer?.name || '-'}</strong><br>
         Größe: <strong>${state.mapWidth} × ${state.mapHeight}</strong><br>
         Tile Size: <strong>${state.tileSize}px</strong><br>
@@ -152,14 +207,14 @@
           const noise = hash2D(wx + x * 3, wy + y * 5, tileId.length);
           let shade = 0;
 
-          if (tileId === 'grass') shade = noise > 0.75 ? 18 : noise < 0.18 ? -18 : 0;
+          if (tileId === 'grass' || tileId === 'bush' || tileId === 'trees') shade = noise > 0.75 ? 18 : noise < 0.18 ? -18 : 0;
           else if (tileId === 'water') shade = noise > 0.7 ? 24 : noise < 0.2 ? -20 : 0;
-          else if (tileId === 'wood') shade = (wy % 3 === 0) ? 14 : noise < 0.15 ? -16 : 0;
-          else if (tileId === 'stone' || tileId === 'wall') shade = noise > 0.8 ? 16 : noise < 0.18 ? -22 : 0;
+          else if (tileId === 'wood' || tileId === 'fence') shade = (wy % 3 === 0) ? 14 : noise < 0.15 ? -16 : 0;
+          else if (tileId === 'stone' || tileId === 'wall' || tileId === 'stone-floor' || tileId === 'brick-wall' || tileId === 'pillar') shade = noise > 0.8 ? 16 : noise < 0.18 ? -22 : 0;
           else if (tileId === 'sand') shade = noise > 0.7 ? 12 : noise < 0.22 ? -10 : 0;
-          else if (tileId === 'dirt') shade = noise > 0.75 ? 10 : noise < 0.2 ? -14 : 0;
+          else if (tileId === 'dirt' || tileId === 'earth' || tileId === 'trap') shade = noise > 0.75 ? 10 : noise < 0.2 ? -14 : 0;
           else if (tileId === 'lava') shade = noise > 0.72 ? 24 : noise < 0.25 ? -14 : 0;
-          else if (tileId === 'floor') shade = noise > 0.82 ? 10 : noise < 0.14 ? -10 : 0;
+          else if (tileId === 'floor' || tileId === 'stairs') shade = noise > 0.82 ? 10 : noise < 0.14 ? -10 : 0;
           else shade = noise > 0.8 ? 8 : noise < 0.18 ? -8 : 0;
 
           ctx.fillStyle = shadeHex(baseColor, shade);
@@ -186,6 +241,43 @@
           const inset = i * (size * 0.08);
           ctx.fillRect(x * size + inset, y * size + size * 0.72 - inset, size - inset * 1.2, size * 0.06);
         }
+      }
+      if (tileId === 'trees') {
+        ctx.fillStyle = 'rgba(34,197,94,0.35)';
+        ctx.beginPath();
+        ctx.arc(x * size + size * 0.5, y * size + size * 0.38, size * 0.24, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(101,67,33,0.45)';
+        ctx.fillRect(x * size + size * 0.44, y * size + size * 0.5, size * 0.12, size * 0.22);
+      }
+      if (tileId === 'bush') {
+        ctx.fillStyle = 'rgba(34,197,94,0.3)';
+        ctx.beginPath();
+        ctx.arc(x * size + size * 0.38, y * size + size * 0.58, size * 0.16, 0, Math.PI * 2);
+        ctx.arc(x * size + size * 0.62, y * size + size * 0.58, size * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (tileId === 'fence') {
+        ctx.fillStyle = 'rgba(255,255,255,0.28)';
+        ctx.fillRect(x * size + size * 0.18, y * size + size * 0.28, size * 0.08, size * 0.44);
+        ctx.fillRect(x * size + size * 0.46, y * size + size * 0.28, size * 0.08, size * 0.44);
+        ctx.fillRect(x * size + size * 0.74, y * size + size * 0.28, size * 0.08, size * 0.44);
+        ctx.fillRect(x * size + size * 0.16, y * size + size * 0.38, size * 0.68, size * 0.06);
+        ctx.fillRect(x * size + size * 0.16, y * size + size * 0.58, size * 0.68, size * 0.06);
+      }
+      if (tileId === 'trap') {
+        ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+        ctx.lineWidth = Math.max(1, size * 0.06);
+        ctx.beginPath();
+        ctx.moveTo(x * size + size * 0.22, y * size + size * 0.22);
+        ctx.lineTo(x * size + size * 0.78, y * size + size * 0.78);
+        ctx.moveTo(x * size + size * 0.78, y * size + size * 0.22);
+        ctx.lineTo(x * size + size * 0.22, y * size + size * 0.78);
+        ctx.stroke();
+      }
+      if (tileId === 'pillar') {
+        ctx.fillStyle = 'rgba(255,255,255,0.25)';
+        ctx.fillRect(x * size + size * 0.28, y * size + size * 0.18, size * 0.44, size * 0.64);
       }
     }
 
@@ -295,16 +387,42 @@
 
     function renderTileButtons() {
       tileButtons.innerHTML = '';
-      TILE_TYPES.forEach(tile => {
-        const btn = document.createElement('button');
-        btn.className = 'tile-btn' + (state.selectedTile === tile.id ? ' active' : '');
-        btn.innerHTML = `<span class="swatch" style="background:${tile.color}"></span><span>${tile.label}</span>`;
-        btn.addEventListener('click', () => {
-          state.selectedTile = tile.id;
-          renderTileButtons();
-          updateStatus();
+      TILE_CATEGORIES.forEach(category => {
+        const wrapper = document.createElement('details');
+        wrapper.className = 'tile-category';
+        if (state.openTileCategories.has(category.id) || category.tiles.some(tile => tile.id === state.selectedTile)) {
+          wrapper.open = true;
+        }
+
+        wrapper.addEventListener('toggle', () => {
+          if (wrapper.open) state.openTileCategories.add(category.id);
+          else state.openTileCategories.delete(category.id);
         });
-        tileButtons.appendChild(btn);
+
+        const summary = document.createElement('summary');
+        summary.className = 'tile-category-summary';
+        summary.innerHTML = `<span>${category.label}</span><span class="tile-category-count">${category.tiles.length}</span>`;
+        wrapper.appendChild(summary);
+
+        const grid = document.createElement('div');
+        grid.className = 'tile-grid';
+
+        category.tiles.forEach(tile => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'tile-btn' + (state.selectedTile === tile.id ? ' active' : '');
+          btn.innerHTML = `<span class="swatch" style="background:${tile.color}"></span><span>${tile.label}</span>`;
+          btn.addEventListener('click', () => {
+            state.selectedTile = tile.id;
+            state.openTileCategories.add(category.id);
+            renderTileButtons();
+            updateStatus();
+          });
+          grid.appendChild(btn);
+        });
+
+        wrapper.appendChild(grid);
+        tileButtons.appendChild(wrapper);
       });
     }
 

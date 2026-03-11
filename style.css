@@ -158,6 +158,57 @@
       gap: 8px;
     }
 
+    #tileButtons {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .tile-category {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #182233;
+      overflow: hidden;
+    }
+
+    .tile-category[open] {
+      border-color: #4b6283;
+    }
+
+    .tile-category-summary {
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      user-select: none;
+    }
+
+    .tile-category-summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .tile-category .tile-grid {
+      padding: 0 10px 10px;
+    }
+
+    .tile-category-count {
+      min-width: 24px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(59,130,246,0.16);
+      color: #bfdbfe;
+      text-align: center;
+      font-size: 12px;
+      letter-spacing: normal;
+    }
+
     .tile-btn {
       display: flex;
       align-items: center;

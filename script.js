@@ -93,6 +93,17 @@
       delete: '✕'
     };
 
+    BUTTON_ICONS.paint = '✦';
+    BUTTON_ICONS.erase = '×';
+    BUTTON_ICONS.fill = '■';
+    BUTTON_ICONS.rect = '▭';
+    BUTTON_ICONS.circle = '◯';
+    BUTTON_ICONS.select = '◇';
+    BUTTON_ICONS.rename = '✎';
+    BUTTON_ICONS.visible = '◉';
+    BUTTON_ICONS.hidden = '◎';
+    BUTTON_ICONS.delete = '✕';
+
     const canvas = document.getElementById('mapCanvas');
     const mapStage = document.getElementById('mapStage');
     const resizeHandleRight = document.getElementById('resizeHandleRight');
@@ -152,6 +163,11 @@
 
     function getActiveLayer() {
       return state.layers.find(layer => layer.id === state.activeLayerId) || state.layers[0];
+    }
+
+    function getEditableActiveLayer() {
+      const layer = getActiveLayer();
+      return layer && layer.visible ? layer : null;
     }
 
     function getSelectedAsset() {
@@ -1021,13 +1037,13 @@
     }
 
     function setTile(x, y, tileId) {
-      const layer = getActiveLayer();
+      const layer = getEditableActiveLayer();
       if (!layer || x < 0 || y < 0 || x >= state.mapWidth || y >= state.mapHeight) return;
       layer.tiles[y][x] = tileId;
     }
 
     function placeAsset(x, y, asset) {
-      const layer = getActiveLayer();
+      const layer = getEditableActiveLayer();
       if (!layer || !asset) return;
       if (!Array.isArray(layer.assetItems)) layer.assetItems = createEmptyAssetItems();
       const rotatedAsset = rotateAsset(asset, state.selectedAssetRotation);
@@ -1043,7 +1059,7 @@
     }
 
     function eraseAt(x, y) {
-      const layer = getActiveLayer();
+      const layer = getEditableActiveLayer();
       if (!layer) return;
       setTile(x, y, 'void');
 
@@ -1089,7 +1105,7 @@
     }
 
     function addTextItem(x, y) {
-      const layer = getActiveLayer();
+      const layer = getEditableActiveLayer();
       if (!layer) return;
       const text = document.getElementById('textInput').value.trim() || 'Text';
       const size = clamp(parseInt(document.getElementById('textSizeInput').value, 10) || 18, 8, 72);
@@ -1097,7 +1113,7 @@
     }
 
     function floodFill(startX, startY, replacement) {
-      const layer = getActiveLayer();
+      const layer = getEditableActiveLayer();
       if (!layer) return;
       const target = layer.tiles[startY]?.[startX];
       if (!target || target === replacement) return;
@@ -1119,6 +1135,11 @@
     }
 
     function applyTool(x, y) {
+      const layer = getEditableActiveLayer();
+      if (!layer) {
+        updateStatus('Aktiver Layer ist ausgeblendet und kann nicht bearbeitet werden');
+        return;
+      }
       const selectedAsset = getSelectedAsset();
       if (state.selectedTool === 'paint' && selectedAsset) placeAsset(x, y, selectedAsset);
       else if (state.selectedTool === 'paint') setTile(x, y, state.selectedTile);
@@ -1310,6 +1331,15 @@
     canvas.addEventListener('mousedown', (evt) => {
       const { x, y } = getGridPos(evt);
       state.hoverCell = { x, y };
+      const editableLayer = getEditableActiveLayer();
+
+      if (!editableLayer) {
+        state.isDrawing = false;
+        state.dragStart = null;
+        drawMap();
+        updateStatus('Aktiver Layer ist ausgeblendet und kann nicht bearbeitet werden');
+        return;
+      }
 
       if (state.selectedTool === 'rect' || state.selectedTool === 'circle') {
         state.isDrawing = true;
@@ -1328,6 +1358,14 @@
       if (state.resizeDrag) return;
       const { x, y } = getGridPos(evt);
       state.hoverCell = { x, y };
+      const editableLayer = getEditableActiveLayer();
+
+      if (!editableLayer) {
+        if (!state.isDrawing) drawMap();
+        updateStatus('Aktiver Layer ist ausgeblendet und kann nicht bearbeitet werden');
+        return;
+      }
+
       if (state.isDrawing && (state.selectedTool === 'paint' || state.selectedTool === 'erase')) {
         applyTool(x, y);
       } else if (state.isDrawing && (state.selectedTool === 'rect' || state.selectedTool === 'circle') && state.dragStart) {

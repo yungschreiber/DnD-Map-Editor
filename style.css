@@ -168,6 +168,13 @@ canvas {
   box-shadow: 0 10px 30px rgba(0,0,0,0.26);
 }
 
+.asset-canvas-stage {
+  position: relative;
+  display: inline-block;
+  padding-right: 18px;
+  padding-bottom: 18px;
+}
+
 .asset-canvas {
   display: block;
 }

@@ -14,13 +14,13 @@
     <header class="topbar">
       <div class="group brand-group">
         <div class="brand">Grid Asset Editor</div>
-        <a class="nav-link-button" href="index.html" data-icon="map">Zur Map</a>
+        <a class="nav-link-button" href="index.html" data-icon="◇">Zur Map</a>
       </div>
       <div class="group">
         <button id="newAssetBtn" type="button" data-icon="+">Neues Asset</button>
-        <button id="saveAssetBtn" type="button" data-icon="save">Asset speichern</button>
-        <button id="exportAssetBtn" type="button" data-icon="exp">JSON exportieren</button>
-        <button id="toggleAssetGridBtn" class="active" type="button" data-icon="grid">Grid an</button>
+        <button id="saveAssetBtn" type="button" data-icon="↓">Asset speichern</button>
+        <button id="exportAssetBtn" type="button" data-icon="⇱">JSON exportieren</button>
+        <button id="toggleAssetGridBtn" class="active" type="button" data-icon="□">Grid an</button>
       </div>
     </header>
 
@@ -50,7 +50,10 @@
             <input id="assetHeightInput" type="number" min="1" max="30" value="20" />
           </div>
         </div>
-        <button id="applyGridBtn" type="button" data-icon="resize">Raster anwenden</button>
+        <div class="group">
+          <button id="fitAssetBtn" type="button" data-icon="⤢">Inhalt anpassen</button>
+          <button id="applyGridBtn" type="button" data-icon="↔">Raster anwenden</button>
+        </div>
       </section>
 
       <section class="section">
@@ -93,6 +96,7 @@
           <div><span class="kbd">4</span> Rechteck</div>
           <div><span class="kbd">5</span> Kreis</div>
           <div><span class="kbd">6</span> Pipette</div>
+          <div><span class="kbd">7</span> Move</div>
           <div><span class="kbd">G</span> Grid</div>
           <div><span class="kbd">+</span> / <span class="kbd">-</span> Zoom</div>
         </div>
@@ -101,7 +105,12 @@
 
     <main class="asset-stage">
       <section class="asset-canvas-shell">
-        <canvas class="asset-canvas" id="assetCanvas" width="640" height="640"></canvas>
+        <div class="asset-canvas-stage" id="assetCanvasStage">
+          <canvas class="asset-canvas" id="assetCanvas" width="640" height="640"></canvas>
+          <button class="resize-handle resize-handle-right" id="assetResizeHandleRight" type="button" aria-label="Asset nach rechts ziehen"></button>
+          <button class="resize-handle resize-handle-bottom" id="assetResizeHandleBottom" type="button" aria-label="Asset nach unten ziehen"></button>
+          <button class="resize-handle resize-handle-corner" id="assetResizeHandleCorner" type="button" aria-label="Asset diagonal ziehen"></button>
+        </div>
       </section>
 
       <section class="section" style="margin-bottom:0; padding-bottom:0; border-bottom:none;">
@@ -121,8 +130,8 @@
       <section class="section">
         <h2 class="panel-title">Ansicht</h2>
         <div class="group">
-          <button id="assetZoomOutBtn" type="button" data-icon="-">Zoom</button>
-          <button id="assetZoomResetBtn" type="button" data-icon="100">100%</button>
+          <button id="assetZoomOutBtn" type="button" data-icon="−">Zoom</button>
+          <button id="assetZoomResetBtn" type="button" data-icon="•">100%</button>
           <button id="assetZoomInBtn" type="button" data-icon="+">Zoom</button>
         </div>
       </section>

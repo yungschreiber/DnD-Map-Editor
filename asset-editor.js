@@ -6,7 +6,8 @@ const TOOL_DEFS = [
   { id: 'fill', label: 'Fill' },
   { id: 'rect', label: 'Rechteck' },
   { id: 'circle', label: 'Kreis' },
-  { id: 'picker', label: 'Pipette' }
+  { id: 'picker', label: 'Pipette' },
+  { id: 'move', label: 'Move' }
 ];
 
 const BUTTON_ICONS = {
@@ -18,6 +19,18 @@ const BUTTON_ICONS = {
   export: '⇱',
   delete: '✕'
 };
+
+BUTTON_ICONS.paint = '✦';
+BUTTON_ICONS.erase = '×';
+BUTTON_ICONS.fill = '■';
+BUTTON_ICONS.rect = '▭';
+BUTTON_ICONS.circle = '◯';
+BUTTON_ICONS.picker = '◌';
+BUTTON_ICONS.load = '◇';
+BUTTON_ICONS.export = '⇱';
+BUTTON_ICONS.delete = '✕';
+
+BUTTON_ICONS.move = '✋';
 
 const PALETTE = [
   '#00000000',
@@ -104,6 +117,9 @@ const rgbColorInput = document.getElementById('rgbColorInput');
 const rgbRInput = document.getElementById('rgbRInput');
 const rgbGInput = document.getElementById('rgbGInput');
 const rgbBInput = document.getElementById('rgbBInput');
+const assetResizeHandleRight = document.getElementById('assetResizeHandleRight');
+const assetResizeHandleBottom = document.getElementById('assetResizeHandleBottom');
+const assetResizeHandleCorner = document.getElementById('assetResizeHandleCorner');
 
 const state = {
   width: 20,
@@ -117,7 +133,9 @@ const state = {
   customColor: '#166534',
   isDrawing: false,
   dragStart: null,
+  moveDrag: null,
   hoverCell: null,
+  resizeDrag: null,
   openTileCategories: new Set(['basic']),
   assetId: null,
   pixels: [],
@@ -130,6 +148,19 @@ function clamp(value, min, max) {
 
 function createEmptyPixels(width, height) {
   return Array.from({ length: height }, () => Array.from({ length: width }, () => null));
+}
+
+function shiftPixels(sourcePixels, offsetX, offsetY, width = state.width, height = state.height) {
+  const nextPixels = createEmptyPixels(width, height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const sourceX = x - offsetX;
+      const sourceY = y - offsetY;
+      if (sourceX < 0 || sourceY < 0 || sourceX >= width || sourceY >= height) continue;
+      nextPixels[y][x] = sourcePixels[sourceY]?.[sourceX] || null;
+    }
+  }
+  return nextPixels;
 }
 
 function normalizeColor(color) {
@@ -215,6 +246,32 @@ function resizeEditorCanvas() {
   canvas.height = state.height * state.cellSize;
   canvas.style.width = `${canvas.width * state.zoom}px`;
   canvas.style.height = `${canvas.height * state.zoom}px`;
+}
+
+function clonePixelsSnapshot() {
+  return state.pixels.map(row => [...row]);
+}
+
+function applyAssetResize(newWidth, newHeight, options = {}) {
+  const nextWidth = clamp(parseInt(newWidth, 10) || state.width, 1, 30);
+  const nextHeight = clamp(parseInt(newHeight, 10) || state.height, 1, 30);
+  const sourcePixels = options.sourcePixels || state.pixels;
+  const nextPixels = createEmptyPixels(nextWidth, nextHeight);
+
+  for (let y = 0; y < Math.min(sourcePixels.length, nextHeight); y++) {
+    for (let x = 0; x < Math.min(sourcePixels[y]?.length || 0, nextWidth); x++) {
+      nextPixels[y][x] = sourcePixels[y][x];
+    }
+  }
+
+  state.width = nextWidth;
+  state.height = nextHeight;
+  state.pixels = nextPixels;
+  syncInputs();
+  resizeEditorCanvas();
+  drawEditor();
+  drawPreview();
+  setStatus(options.statusMessage || `Raster angepasst: <strong>${state.width}x${state.height}</strong>`);
 }
 
 function drawEditor(preview = null) {
@@ -534,13 +591,44 @@ function deleteAsset(assetId) {
 }
 
 function applyGridSize() {
-  const nextWidth = clamp(parseInt(assetWidthInput.value, 10) || state.width, 1, 30);
-  const nextHeight = clamp(parseInt(assetHeightInput.value, 10) || state.height, 1, 30);
+  applyAssetResize(assetWidthInput.value, assetHeightInput.value);
+}
+
+function fitAssetToContent() {
+  let minX = state.width;
+  let minY = state.height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < state.height; y++) {
+    for (let x = 0; x < state.width; x++) {
+      if (!state.pixels[y][x]) continue;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+
+  if (maxX === -1) {
+    state.width = 1;
+    state.height = 1;
+    state.pixels = createEmptyPixels(1, 1);
+    syncInputs();
+    resizeEditorCanvas();
+    drawEditor();
+    drawPreview();
+    setStatus('Asset enthält keine Pixel und wurde auf 1x1 zurückgesetzt');
+    return;
+  }
+
+  const nextWidth = maxX - minX + 1;
+  const nextHeight = maxY - minY + 1;
   const nextPixels = createEmptyPixels(nextWidth, nextHeight);
 
-  for (let y = 0; y < Math.min(state.height, nextHeight); y++) {
-    for (let x = 0; x < Math.min(state.width, nextWidth); x++) {
-      nextPixels[y][x] = state.pixels[y][x];
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      nextPixels[y - minY][x - minX] = state.pixels[y][x];
     }
   }
 
@@ -551,7 +639,7 @@ function applyGridSize() {
   resizeEditorCanvas();
   drawEditor();
   drawPreview();
-  setStatus(`Raster angepasst: <strong>${state.width}x${state.height}</strong>`);
+  setStatus(`Inhalt angepasst: <strong>${state.width}x${state.height}</strong>`);
 }
 
 function resetEditor() {
@@ -577,6 +665,67 @@ function getCellFromEvent(evt) {
     x: clamp(x, 0, state.width - 1),
     y: clamp(y, 0, state.height - 1)
   };
+}
+
+function getCellFromClient(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.floor((clientX - rect.left) / (state.cellSize * state.zoom));
+  const y = Math.floor((clientY - rect.top) / (state.cellSize * state.zoom));
+  return {
+    x: clamp(x, 0, state.width - 1),
+    y: clamp(y, 0, state.height - 1)
+  };
+}
+
+function getResizeHandleDirection(handle) {
+  if (handle === assetResizeHandleRight) return 'right';
+  if (handle === assetResizeHandleBottom) return 'bottom';
+  return 'corner';
+}
+
+function startResizeDrag(direction, evt) {
+  evt.preventDefault();
+  evt.stopPropagation();
+  state.resizeDrag = {
+    direction,
+    startClientX: evt.clientX,
+    startClientY: evt.clientY,
+    startWidth: state.width,
+    startHeight: state.height,
+    snapshot: clonePixelsSnapshot()
+  };
+
+  [assetResizeHandleRight, assetResizeHandleBottom, assetResizeHandleCorner].forEach(handle => {
+    handle.classList.toggle('active', getResizeHandleDirection(handle) === direction);
+  });
+  document.body.style.userSelect = 'none';
+}
+
+function updateResizeDrag(evt) {
+  if (!state.resizeDrag) return;
+  const stepSize = state.cellSize * state.zoom;
+  const deltaX = Math.round((evt.clientX - state.resizeDrag.startClientX) / stepSize);
+  const deltaY = Math.round((evt.clientY - state.resizeDrag.startClientY) / stepSize);
+
+  const nextWidth = state.resizeDrag.direction === 'bottom'
+    ? state.resizeDrag.startWidth
+    : state.resizeDrag.startWidth + deltaX;
+  const nextHeight = state.resizeDrag.direction === 'right'
+    ? state.resizeDrag.startHeight
+    : state.resizeDrag.startHeight + deltaY;
+
+  applyAssetResize(nextWidth, nextHeight, {
+    sourcePixels: state.resizeDrag.snapshot,
+    statusMessage: `Rastergröße: <strong>${clamp(nextWidth, 1, 30)} x ${clamp(nextHeight, 1, 30)}</strong>`
+  });
+}
+
+function endResizeDrag() {
+  if (!state.resizeDrag) return;
+  state.resizeDrag = null;
+  [assetResizeHandleRight, assetResizeHandleBottom, assetResizeHandleCorner].forEach(handle => handle.classList.remove('active'));
+  document.body.style.userSelect = '';
+  updateStatus('Rastergröße per Ziehen angepasst');
 }
 
 function applyShapeToGrid(startX, startY, endX, endY, shape, callback) {
@@ -642,6 +791,19 @@ function applyToolAt(x, y) {
   drawPreview();
 }
 
+function updateMoveDrag(x, y) {
+  if (!state.moveDrag) return;
+  const offsetX = x - state.moveDrag.startX;
+  const offsetY = y - state.moveDrag.startY;
+  if (offsetX === state.moveDrag.lastOffsetX && offsetY === state.moveDrag.lastOffsetY) return;
+  state.moveDrag.lastOffsetX = offsetX;
+  state.moveDrag.lastOffsetY = offsetY;
+  state.pixels = shiftPixels(state.moveDrag.snapshot, offsetX, offsetY);
+  drawEditor();
+  drawPreview();
+  updateStatus(`Verschiebung: <strong>${offsetX}, ${offsetY}</strong>`);
+}
+
 function importAssetFile(file) {
   if (!file) return;
   const reader = new FileReader();
@@ -678,8 +840,23 @@ function importAssetFile(file) {
 }
 
 canvas.addEventListener('mousedown', evt => {
+  if (state.resizeDrag) return;
   const { x, y } = getCellFromEvent(evt);
   state.hoverCell = { x, y };
+
+  if (state.currentTool === 'move') {
+    state.isDrawing = true;
+    state.dragStart = { x, y };
+    state.moveDrag = {
+      startX: x,
+      startY: y,
+      snapshot: clonePixelsSnapshot(),
+      lastOffsetX: 0,
+      lastOffsetY: 0
+    };
+    updateStatus('Verschiebung: <strong>0, 0</strong>');
+    return;
+  }
 
   if (state.currentTool === 'rect' || state.currentTool === 'circle') {
     state.isDrawing = true;
@@ -693,8 +870,14 @@ canvas.addEventListener('mousedown', evt => {
 });
 
 canvas.addEventListener('mousemove', evt => {
+  if (state.resizeDrag) return;
   const { x, y } = getCellFromEvent(evt);
   state.hoverCell = { x, y };
+
+  if (state.isDrawing && state.currentTool === 'move' && state.moveDrag) {
+    updateMoveDrag(x, y);
+    return;
+  }
 
   if (state.isDrawing && (state.currentTool === 'paint' || state.currentTool === 'erase')) {
     applyToolAt(x, y);
@@ -706,7 +889,24 @@ canvas.addEventListener('mousemove', evt => {
   }
 });
 
+canvas.addEventListener('mouseleave', () => {
+  state.hoverCell = null;
+  if (!state.isDrawing) drawEditor();
+  updateStatus();
+});
+
 window.addEventListener('mouseup', () => {
+  if (state.resizeDrag) {
+    endResizeDrag();
+    return;
+  }
+  if (state.isDrawing && state.currentTool === 'move' && state.moveDrag) {
+    updateStatus(`Inhalt verschoben: <strong>${state.moveDrag.lastOffsetX}, ${state.moveDrag.lastOffsetY}</strong>`);
+    state.moveDrag = null;
+    state.isDrawing = false;
+    state.dragStart = null;
+    return;
+  }
   if (state.isDrawing && state.dragStart && state.hoverCell && (state.currentTool === 'rect' || state.currentTool === 'circle')) {
     applyShape(state.dragStart.x, state.dragStart.y, state.hoverCell.x, state.hoverCell.y, state.currentTool);
     drawEditor();
@@ -716,7 +916,17 @@ window.addEventListener('mouseup', () => {
   state.dragStart = null;
 });
 
+window.addEventListener('mousemove', evt => {
+  if (state.isDrawing && state.currentTool === 'move' && state.moveDrag) {
+    const { x, y } = getCellFromClient(evt.clientX, evt.clientY);
+    state.hoverCell = { x, y };
+    updateMoveDrag(x, y);
+  }
+  updateResizeDrag(evt);
+});
+
 document.getElementById('applyGridBtn').addEventListener('click', applyGridSize);
+document.getElementById('fitAssetBtn').addEventListener('click', fitAssetToContent);
 document.getElementById('newAssetBtn').addEventListener('click', resetEditor);
 document.getElementById('saveAssetBtn').addEventListener('click', saveCurrentAsset);
 document.getElementById('exportAssetBtn').addEventListener('click', () => exportAsset());
@@ -751,6 +961,12 @@ document.getElementById('assetZoomResetBtn').addEventListener('click', () => {
   updateStatus();
 });
 
+[assetResizeHandleRight, assetResizeHandleBottom, assetResizeHandleCorner].forEach(handle => {
+  handle.addEventListener('mousedown', evt => {
+    startResizeDrag(getResizeHandleDirection(handle), evt);
+  });
+});
+
 window.addEventListener('keydown', (event) => {
   if (event.target.tagName === 'INPUT') return;
   if (event.key === '1') state.currentTool = 'paint';
@@ -759,6 +975,7 @@ window.addEventListener('keydown', (event) => {
   if (event.key === '4') state.currentTool = 'rect';
   if (event.key === '5') state.currentTool = 'circle';
   if (event.key === '6') state.currentTool = 'picker';
+  if (event.key === '7') state.currentTool = 'move';
   if (event.key.toLowerCase() === 'g') {
     document.getElementById('toggleAssetGridBtn').click();
     return;

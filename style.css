@@ -161,11 +161,11 @@ canvas {
 .asset-canvas-shell {
   width: fit-content;
   max-width: 100%;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: rgba(20,20,20,0.86);
-  box-shadow: 0 10px 30px rgba(0,0,0,0.26);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .asset-canvas-stage {
@@ -176,6 +176,10 @@ canvas {
 }
 
 .asset-canvas {
+  display: block;
+}
+
+.swatch-canvas {
   display: block;
 }
 

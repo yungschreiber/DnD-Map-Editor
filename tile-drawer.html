@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tile Drawer - DnD Map Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="asset-page">
+  <div class="asset-app">
+    <header class="topbar">
+      <div class="group brand-group">
+        <div class="brand">Tile Drawer</div>
+        <a class="nav-link-button" href="index.html" data-icon="◇">Zur Map</a>
+        <a class="nav-link-button" href="asset-editor.html" data-icon="◇">Asset Editor</a>
+      </div>
+      <div class="group">
+        <button id="newTileBtn" type="button" data-icon="+">Neues Tile</button>
+        <button id="saveTileBtn" type="button" data-icon="↓">Tile speichern</button>
+        <button id="toggleTileGridBtn" class="active" type="button" data-icon="□">Grid an</button>
+      </div>
+    </header>
+
+    <aside class="asset-sidebar">
+      <section class="section">
+        <h2 class="panel-title">Werkzeuge</h2>
+        <div class="asset-tool-grid" id="tileToolButtons"></div>
+      </section>
+
+      <section class="section">
+        <h2 class="panel-title">Tile</h2>
+        <div class="field">
+          <label for="tileNameInput">Name</label>
+          <input id="tileNameInput" type="text" value="New Tile" />
+        </div>
+        <div class="field">
+          <label for="tileCategorySelect">Kategorie</label>
+          <select id="tileCategorySelect"></select>
+        </div>
+        <div class="field">
+          <label for="newCategoryInput">Neue Kategorie</label>
+          <input id="newCategoryInput" type="text" placeholder="z. B. Furniture" />
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="tileWidthInput">Breite</label>
+            <input id="tileWidthInput" type="number" min="8" max="32" value="16" />
+          </div>
+          <div class="field">
+            <label for="tileHeightInput">Höhe</label>
+            <input id="tileHeightInput" type="number" min="8" max="32" value="16" />
+          </div>
+        </div>
+        <button id="applyTileSizeBtn" type="button" data-icon="↔">Raster anwenden</button>
+      </section>
+
+      <section class="section">
+        <h2 class="panel-title">Farben</h2>
+        <div class="palette-grid" id="tilePaletteButtons"></div>
+        <div class="field" style="margin-top:12px;">
+          <label for="tileRgbColorInput">RGB Farbe</label>
+          <input id="tileRgbColorInput" type="color" value="#8b5a2b" />
+        </div>
+        <div class="row rgb-input-row">
+          <div class="field">
+            <label for="tileRgbRInput">R</label>
+            <input id="tileRgbRInput" type="number" min="0" max="255" value="139" />
+          </div>
+          <div class="field">
+            <label for="tileRgbGInput">G</label>
+            <input id="tileRgbGInput" type="number" min="0" max="255" value="90" />
+          </div>
+          <div class="field">
+            <label for="tileRgbBInput">B</label>
+            <input id="tileRgbBInput" type="number" min="0" max="255" value="43" />
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="panel-title">Shortcuts</h2>
+        <div class="hint">
+          <div><span class="kbd">1</span> Pinsel</div>
+          <div><span class="kbd">2</span> Radierer</div>
+          <div><span class="kbd">3</span> Fill</div>
+          <div><span class="kbd">4</span> Rechteck</div>
+          <div><span class="kbd">5</span> Kreis</div>
+          <div><span class="kbd">6</span> Pipette</div>
+          <div><span class="kbd">7</span> Move</div>
+          <div><span class="kbd">G</span> Grid</div>
+        </div>
+      </section>
+    </aside>
+
+    <main class="asset-stage">
+      <section class="asset-canvas-shell">
+        <div class="asset-canvas-stage">
+          <canvas class="asset-canvas" id="tileDrawerCanvas" width="512" height="512"></canvas>
+        </div>
+      </section>
+
+      <section class="section" style="margin-bottom:0; padding-bottom:0; border-bottom:none;">
+        <h2 class="panel-title">Vorschau</h2>
+        <div class="asset-preview">
+          <canvas id="tilePreviewCanvas" width="192" height="192"></canvas>
+        </div>
+      </section>
+    </main>
+
+    <aside class="asset-tiles">
+      <section class="section">
+        <h2 class="panel-title">Status</h2>
+        <div class="asset-status" id="tileDrawerStatus"></div>
+      </section>
+    </aside>
+
+    <aside class="asset-library">
+      <section class="section">
+        <h2 class="panel-title">Eigene Tiles</h2>
+        <div class="hint">Hier erscheinen Tiles, die du selbst erstellt hast. Sie stehen danach im Map- und Asset-Editor bereit.</div>
+      </section>
+
+      <section style="margin-bottom:0;">
+        <div class="asset-list" id="customTileList"></div>
+      </section>
+    </aside>
+  </div>
+
+  <script src="shared-tiles.js"></script>
+  <script src="tile-drawer.js"></script>
+</body>
+</html>

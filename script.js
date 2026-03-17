@@ -71,6 +71,15 @@
     );
     TILE_TYPES.push({ id: 'void', label: 'Leer', color: '#111827', categoryId: 'system', categoryLabel: 'System' });
     const TILE_MAP = new Map(TILE_TYPES.map(tile => [tile.id, tile]));
+    TILE_CATEGORIES.splice(0, TILE_CATEGORIES.length, ...window.DND_TILE_SHARED.TILE_CATEGORIES.map(category => ({
+      ...category,
+      tiles: category.tiles.map(tile => ({ ...tile }))
+    })));
+    TILE_TYPES.splice(0, TILE_TYPES.length, ...window.DND_TILE_SHARED.TILE_TYPES_WITH_VOID.map(tile => ({ ...tile })));
+    TILE_MAP.clear();
+    window.DND_TILE_SHARED.TILE_MAP_WITH_VOID.forEach((tile, id) => {
+      TILE_MAP.set(id, { ...tile });
+    });
 
     const TOOLS = [
       { id: 'paint', label: 'Pinsel' },
@@ -78,7 +87,8 @@
       { id: 'fill', label: 'Fill' },
       { id: 'rect', label: 'Rechteck' },
       { id: 'circle', label: 'Kreis' },
-      { id: 'text', label: 'Text' }
+      { id: 'text', label: 'Text' },
+      { id: 'move', label: 'Move' }
     ];
 
     const BUTTON_ICONS = {
@@ -88,6 +98,7 @@
       rect: '▭',
       circle: '◯',
       text: 'T',
+      move: 'âœ‹',
       select: '◇',
       rename: '✎',
       visible: '◉',
@@ -117,6 +128,7 @@
     const toolButtons = document.getElementById('toolButtons');
     const layerList = document.getElementById('layerList');
     const assetLibraryList = document.getElementById('assetLibraryList');
+    const tileTextureCache = new Map();
 
     const state = {
       mapWidth: 30,
@@ -131,6 +143,7 @@
       isDrawing: false,
       dragStart: null,
       hoverCell: null,
+      moveDrag: null,
       layers: [],
       assetLibrary: [],
       activeLayerId: null,
@@ -151,6 +164,49 @@
 
     function createEmptyTiles(width, height, fill = 'void') {
       return Array.from({ length: height }, () => Array.from({ length: width }, () => fill));
+    }
+
+    function cloneLayerContent(layer) {
+      return {
+        tiles: layer.tiles.map(row => [...row]),
+        textItems: layer.textItems.map(item => ({ ...item })),
+        assetItems: (layer.assetItems || []).map(item => ({
+          x: item.x,
+          y: item.y,
+          asset: {
+            ...item.asset,
+            pixels: item.asset.pixels.map(row => [...row])
+          }
+        }))
+      };
+    }
+
+    function moveLayerContent(layer, snapshot, offsetX, offsetY) {
+      const nextTiles = createEmptyTiles(state.mapWidth, state.mapHeight, 'void');
+
+      for (let y = 0; y < state.mapHeight; y++) {
+        for (let x = 0; x < state.mapWidth; x++) {
+          const sourceX = x - offsetX;
+          const sourceY = y - offsetY;
+          if (sourceX < 0 || sourceY < 0 || sourceX >= state.mapWidth || sourceY >= state.mapHeight) continue;
+          nextTiles[y][x] = snapshot.tiles[sourceY]?.[sourceX] || 'void';
+        }
+      }
+
+      layer.tiles = nextTiles;
+      layer.textItems = snapshot.textItems
+        .map(item => ({ ...item, x: item.x + offsetX, y: item.y + offsetY }))
+        .filter(item => item.x >= 0 && item.y >= 0 && item.x < state.mapWidth && item.y < state.mapHeight);
+      layer.assetItems = snapshot.assetItems
+        .map(item => ({
+          x: item.x + offsetX,
+          y: item.y + offsetY,
+          asset: {
+            ...item.asset,
+            pixels: item.asset.pixels.map(row => [...row])
+          }
+        }))
+        .filter(item => item.x < state.mapWidth && item.y < state.mapHeight && item.x + item.asset.width > 0 && item.y + item.asset.height > 0);
     }
 
     function createLayer(name = 'Layer') {
@@ -309,6 +365,47 @@
       return TILE_MAP.get(id) || TILE_TYPES[0];
     }
 
+    function getTileTextureImage(tile) {
+      const textureSource = tile?.textureDataUrl || tile?.texturePath;
+      if (!textureSource) return null;
+      if (tileTextureCache.has(textureSource)) return tileTextureCache.get(textureSource);
+
+      const image = new Image();
+      image.onload = () => {
+        drawMap();
+        renderTileButtons();
+      };
+      image.src = textureSource;
+      tileTextureCache.set(textureSource, image);
+      return image;
+    }
+
+    function drawTileTextureImage(targetCtx, tile, x, y, size) {
+      const image = getTileTextureImage(tile);
+      if (!image?.complete || !image.naturalWidth) return false;
+      targetCtx.save();
+      targetCtx.imageSmoothingEnabled = false;
+      targetCtx.drawImage(image, x * size, y * size, size, size);
+      targetCtx.restore();
+      return true;
+    }
+
+    function refreshSharedTiles() {
+      window.DND_TILE_SHARED.refreshFromStorage();
+      TILE_CATEGORIES.splice(0, TILE_CATEGORIES.length, ...window.DND_TILE_SHARED.TILE_CATEGORIES.map(category => ({
+        ...category,
+        tiles: category.tiles.map(tile => ({ ...tile }))
+      })));
+      TILE_TYPES.splice(0, TILE_TYPES.length, ...window.DND_TILE_SHARED.TILE_TYPES_WITH_VOID.map(tile => ({ ...tile })));
+      TILE_MAP.clear();
+      window.DND_TILE_SHARED.TILE_MAP_WITH_VOID.forEach((tile, id) => {
+        TILE_MAP.set(id, { ...tile });
+      });
+      if (!TILE_MAP.has(state.selectedTile)) state.selectedTile = 'stone';
+      renderTileButtons();
+      drawMap();
+    }
+
     function resizeCanvas() {
       canvas.width = state.mapWidth * state.tileSize;
       canvas.height = state.mapHeight * state.tileSize;
@@ -339,8 +436,11 @@
 
     function drawGrid() {
       if (!state.showGrid) return;
-      ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+      ctx.save();
+      ctx.globalCompositeOperation = 'difference';
+      ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.18;
       for (let x = 0; x <= state.mapWidth; x++) {
         ctx.beginPath();
         ctx.moveTo(x * state.tileSize + 0.5, 0);
@@ -355,7 +455,7 @@
       }
 
       const crossSize = Math.max(3, Math.floor(state.tileSize * 0.18));
-      ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+      ctx.globalAlpha = 0.55;
       for (let x = 0; x <= state.mapWidth; x += 2) {
         for (let y = 0; y <= state.mapHeight; y += 2) {
           const px = x * state.tileSize + 0.5;
@@ -368,6 +468,7 @@
           ctx.stroke();
         }
       }
+      ctx.restore();
     }
 
     function hash2D(x, y, seed = 0) {
@@ -408,9 +509,9 @@
 
           if (tileId === 'grass' || tileId === 'bush' || tileId === 'trees') shade = noise > 0.75 ? 18 : noise < 0.18 ? -18 : 0;
           else if (tileId === 'water') shade = noise > 0.7 ? 24 : noise < 0.2 ? -20 : 0;
-          else if (tileId === 'wood' || tileId === 'fence') shade = (wy % 3 === 0) ? 14 : noise < 0.15 ? -16 : 0;
+          else if (tileId === 'wood' || tileId === 'fence' || tileId === 'treasure-chest' || tileId === 'bed' || tileId === 'barrel') shade = (wy % 3 === 0) ? 14 : noise < 0.15 ? -16 : 0;
           else if (tileId === 'roof') shade = (wy % 2 === 0) ? 18 : noise < 0.2 ? -18 : 0;
-          else if (tileId === 'stone' || tileId === 'wall' || tileId === 'stone-floor' || tileId === 'brick-wall' || tileId === 'pillar') shade = noise > 0.8 ? 16 : noise < 0.18 ? -22 : 0;
+          else if (tileId === 'stone' || tileId === 'wall' || tileId === 'stone-floor' || tileId === 'brick-wall' || tileId === 'pillar' || tileId === 'prison-cell') shade = noise > 0.8 ? 16 : noise < 0.18 ? -22 : 0;
           else if (tileId === 'sand') shade = noise > 0.7 ? 12 : noise < 0.22 ? -10 : 0;
           else if (tileId === 'dirt' || tileId === 'earth' || tileId === 'trap') shade = noise > 0.75 ? 10 : noise < 0.2 ? -14 : 0;
           else if (tileId === 'lava') shade = noise > 0.72 ? 24 : noise < 0.25 ? -14 : 0;
@@ -442,21 +543,6 @@
           ctx.fillRect(x * size + inset, y * size + size * 0.72 - inset, size - inset * 1.2, size * 0.06);
         }
       }
-      if (tileId === 'trees') {
-        ctx.fillStyle = 'rgba(34,197,94,0.35)';
-        ctx.beginPath();
-        ctx.arc(x * size + size * 0.5, y * size + size * 0.38, size * 0.24, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(101,67,33,0.45)';
-        ctx.fillRect(x * size + size * 0.44, y * size + size * 0.5, size * 0.12, size * 0.22);
-      }
-      if (tileId === 'bush') {
-        ctx.fillStyle = 'rgba(34,197,94,0.3)';
-        ctx.beginPath();
-        ctx.arc(x * size + size * 0.38, y * size + size * 0.58, size * 0.16, 0, Math.PI * 2);
-        ctx.arc(x * size + size * 0.62, y * size + size * 0.58, size * 0.18, 0, Math.PI * 2);
-        ctx.fill();
-      }
       if (tileId === 'fence') {
         ctx.fillStyle = 'rgba(255,255,255,0.28)';
         ctx.fillRect(x * size + size * 0.18, y * size + size * 0.28, size * 0.08, size * 0.44);
@@ -464,6 +550,37 @@
         ctx.fillRect(x * size + size * 0.74, y * size + size * 0.28, size * 0.08, size * 0.44);
         ctx.fillRect(x * size + size * 0.16, y * size + size * 0.38, size * 0.68, size * 0.06);
         ctx.fillRect(x * size + size * 0.16, y * size + size * 0.58, size * 0.68, size * 0.06);
+      }
+      if (tileId === 'treasure-chest') {
+        ctx.fillStyle = 'rgba(41,24,12,0.5)';
+        ctx.fillRect(x * size + size * 0.18, y * size + size * 0.42, size * 0.64, size * 0.3);
+        ctx.fillStyle = 'rgba(181,137,58,0.55)';
+        ctx.fillRect(x * size + size * 0.18, y * size + size * 0.36, size * 0.64, size * 0.08);
+        ctx.fillRect(x * size + size * 0.46, y * size + size * 0.36, size * 0.08, size * 0.36);
+      }
+      if (tileId === 'bed') {
+        ctx.fillStyle = 'rgba(245,245,245,0.55)';
+        ctx.fillRect(x * size + size * 0.18, y * size + size * 0.18, size * 0.22, size * 0.18);
+        ctx.fillStyle = 'rgba(153,27,27,0.42)';
+        ctx.fillRect(x * size + size * 0.18, y * size + size * 0.36, size * 0.62, size * 0.34);
+        ctx.fillStyle = 'rgba(60,38,24,0.45)';
+        ctx.fillRect(x * size + size * 0.16, y * size + size * 0.14, size * 0.68, size * 0.06);
+        ctx.fillRect(x * size + size * 0.16, y * size + size * 0.72, size * 0.68, size * 0.06);
+      }
+      if (tileId === 'barrel') {
+        ctx.fillStyle = 'rgba(60,38,24,0.18)';
+        ctx.beginPath();
+        ctx.ellipse(x * size + size * 0.5, y * size + size * 0.5, size * 0.28, size * 0.28, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(220,220,220,0.38)';
+        ctx.lineWidth = Math.max(1, size * 0.05);
+        ctx.beginPath();
+        ctx.arc(x * size + size * 0.5, y * size + size * 0.5, size * 0.23, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x * size + size * 0.34, y * size + size * 0.5);
+        ctx.lineTo(x * size + size * 0.66, y * size + size * 0.5);
+        ctx.stroke();
       }
       if (tileId === 'roof') {
         ctx.strokeStyle = 'rgba(255,245,235,0.28)';
@@ -494,6 +611,175 @@
         ctx.fillStyle = 'rgba(255,255,255,0.25)';
         ctx.fillRect(x * size + size * 0.28, y * size + size * 0.18, size * 0.44, size * 0.64);
       }
+      if (tileId === 'prison-cell') {
+        ctx.strokeStyle = 'rgba(225,232,240,0.42)';
+        ctx.lineWidth = Math.max(1, size * 0.05);
+        for (let col = 0.2; col <= 0.8; col += 0.18) {
+          ctx.beginPath();
+          ctx.moveTo(x * size + size * col, y * size + size * 0.14);
+          ctx.lineTo(x * size + size * col, y * size + size * 0.86);
+          ctx.stroke();
+        }
+        ctx.fillStyle = 'rgba(15,23,42,0.42)';
+        ctx.fillRect(x * size + size * 0.14, y * size + size * 0.18, size * 0.72, size * 0.1);
+        ctx.fillRect(x * size + size * 0.14, y * size + size * 0.72, size * 0.72, size * 0.1);
+      }
+    }
+
+    function createTileTexturePreview(tile, previewSize = 18) {
+      const preview = document.createElement('canvas');
+      preview.width = previewSize;
+      preview.height = previewSize;
+      preview.className = 'swatch swatch-canvas';
+
+      const previewCtx = preview.getContext('2d');
+      previewCtx.imageSmoothingEnabled = false;
+
+      if (drawTileTextureImage(previewCtx, tile, 0, 0, previewSize)) return preview;
+
+      previewCtx.save();
+      if (tile.id === 'barrel') {
+        previewCtx.beginPath();
+        previewCtx.ellipse(
+          previewSize * 0.5,
+          previewSize * 0.5,
+          previewSize * 0.28,
+          previewSize * 0.28,
+          0,
+          0,
+          Math.PI * 2
+        );
+        previewCtx.clip();
+      }
+      previewCtx.fillStyle = tile.color;
+      previewCtx.fillRect(0, 0, previewSize, previewSize);
+
+      const px = Math.max(2, Math.floor(previewSize / 6));
+      for (let py = 0; py < previewSize; py += px) {
+        for (let pxl = 0; pxl < previewSize; pxl += px) {
+          const wx = Math.floor(pxl / px);
+          const wy = Math.floor(py / px);
+          const noise = hash2D(wx, wy, tile.id.length);
+          let shade = 0;
+
+          if (tile.id === 'grass' || tile.id === 'bush' || tile.id === 'trees') shade = noise > 0.75 ? 18 : noise < 0.18 ? -18 : 0;
+          else if (tile.id === 'water') shade = noise > 0.7 ? 24 : noise < 0.2 ? -20 : 0;
+          else if (tile.id === 'wood' || tile.id === 'fence' || tile.id === 'treasure-chest' || tile.id === 'bed' || tile.id === 'barrel') shade = (wy % 3 === 0) ? 14 : noise < 0.15 ? -16 : 0;
+          else if (tile.id === 'roof') shade = (wy % 2 === 0) ? 18 : noise < 0.2 ? -18 : 0;
+          else if (tile.id === 'stone' || tile.id === 'wall' || tile.id === 'stone-floor' || tile.id === 'brick-wall' || tile.id === 'pillar' || tile.id === 'prison-cell') shade = noise > 0.8 ? 16 : noise < 0.18 ? -22 : 0;
+          else if (tile.id === 'sand') shade = noise > 0.7 ? 12 : noise < 0.22 ? -10 : 0;
+          else if (tile.id === 'dirt' || tile.id === 'earth' || tile.id === 'trap') shade = noise > 0.75 ? 10 : noise < 0.2 ? -14 : 0;
+          else if (tile.id === 'lava') shade = noise > 0.72 ? 24 : noise < 0.25 ? -14 : 0;
+          else if (tile.id === 'floor' || tile.id === 'stairs') shade = noise > 0.82 ? 10 : noise < 0.14 ? -10 : 0;
+          else shade = noise > 0.8 ? 8 : noise < 0.18 ? -8 : 0;
+
+          previewCtx.fillStyle = shadeHex(tile.color, shade);
+          previewCtx.fillRect(pxl, py, Math.min(px, previewSize - pxl), Math.min(px, previewSize - py));
+        }
+      }
+      previewCtx.restore();
+
+      if (tile.id === 'door') {
+        previewCtx.fillStyle = 'rgba(255,255,255,0.25)';
+        previewCtx.fillRect(previewSize * 0.2, previewSize * 0.42, previewSize * 0.6, previewSize * 0.16);
+      }
+      if (tile.id === 'window') {
+        previewCtx.fillStyle = 'rgba(255,255,255,0.35)';
+        previewCtx.fillRect(previewSize * 0.18, previewSize * 0.18, previewSize * 0.64, previewSize * 0.64);
+        previewCtx.fillStyle = 'rgba(15,23,42,0.55)';
+        previewCtx.fillRect(previewSize * 0.47, previewSize * 0.18, previewSize * 0.06, previewSize * 0.64);
+        previewCtx.fillRect(previewSize * 0.18, previewSize * 0.47, previewSize * 0.64, previewSize * 0.06);
+      }
+      if (tile.id === 'stairs') {
+        previewCtx.fillStyle = 'rgba(255,255,255,0.22)';
+        for (let i = 0; i < 5; i++) {
+          const inset = i * (previewSize * 0.08);
+          previewCtx.fillRect(inset, previewSize * 0.72 - inset, previewSize - inset * 1.2, previewSize * 0.06);
+        }
+      }
+      if (tile.id === 'fence') {
+        previewCtx.fillStyle = 'rgba(255,255,255,0.28)';
+        previewCtx.fillRect(previewSize * 0.18, previewSize * 0.28, previewSize * 0.08, previewSize * 0.44);
+        previewCtx.fillRect(previewSize * 0.46, previewSize * 0.28, previewSize * 0.08, previewSize * 0.44);
+        previewCtx.fillRect(previewSize * 0.74, previewSize * 0.28, previewSize * 0.08, previewSize * 0.44);
+        previewCtx.fillRect(previewSize * 0.16, previewSize * 0.38, previewSize * 0.68, previewSize * 0.06);
+        previewCtx.fillRect(previewSize * 0.16, previewSize * 0.58, previewSize * 0.68, previewSize * 0.06);
+      }
+      if (tile.id === 'treasure-chest') {
+        previewCtx.fillStyle = 'rgba(41,24,12,0.5)';
+        previewCtx.fillRect(previewSize * 0.18, previewSize * 0.42, previewSize * 0.64, previewSize * 0.3);
+        previewCtx.fillStyle = 'rgba(181,137,58,0.55)';
+        previewCtx.fillRect(previewSize * 0.18, previewSize * 0.36, previewSize * 0.64, previewSize * 0.08);
+        previewCtx.fillRect(previewSize * 0.46, previewSize * 0.36, previewSize * 0.08, previewSize * 0.36);
+      }
+      if (tile.id === 'bed') {
+        previewCtx.fillStyle = 'rgba(245,245,245,0.55)';
+        previewCtx.fillRect(previewSize * 0.18, previewSize * 0.18, previewSize * 0.22, previewSize * 0.18);
+        previewCtx.fillStyle = 'rgba(153,27,27,0.42)';
+        previewCtx.fillRect(previewSize * 0.18, previewSize * 0.36, previewSize * 0.62, previewSize * 0.34);
+        previewCtx.fillStyle = 'rgba(60,38,24,0.45)';
+        previewCtx.fillRect(previewSize * 0.16, previewSize * 0.14, previewSize * 0.68, previewSize * 0.06);
+        previewCtx.fillRect(previewSize * 0.16, previewSize * 0.72, previewSize * 0.68, previewSize * 0.06);
+      }
+      if (tile.id === 'barrel') {
+        previewCtx.fillStyle = 'rgba(60,38,24,0.18)';
+        previewCtx.beginPath();
+        previewCtx.ellipse(previewSize * 0.5, previewSize * 0.5, previewSize * 0.28, previewSize * 0.28, 0, 0, Math.PI * 2);
+        previewCtx.fill();
+        previewCtx.strokeStyle = 'rgba(220,220,220,0.38)';
+        previewCtx.lineWidth = Math.max(1, previewSize * 0.05);
+        previewCtx.beginPath();
+        previewCtx.arc(previewSize * 0.5, previewSize * 0.5, previewSize * 0.23, 0, Math.PI * 2);
+        previewCtx.stroke();
+        previewCtx.beginPath();
+        previewCtx.moveTo(previewSize * 0.34, previewSize * 0.5);
+        previewCtx.lineTo(previewSize * 0.66, previewSize * 0.5);
+        previewCtx.stroke();
+      }
+      if (tile.id === 'roof') {
+        previewCtx.strokeStyle = 'rgba(255,245,235,0.28)';
+        previewCtx.lineWidth = Math.max(1, previewSize * 0.05);
+        for (let row = 0.24; row <= 0.78; row += 0.18) {
+          previewCtx.beginPath();
+          previewCtx.moveTo(previewSize * 0.12, previewSize * row);
+          previewCtx.lineTo(previewSize * 0.88, previewSize * row);
+          previewCtx.stroke();
+        }
+        previewCtx.strokeStyle = 'rgba(120,53,15,0.32)';
+        previewCtx.beginPath();
+        previewCtx.moveTo(previewSize * 0.5, previewSize * 0.12);
+        previewCtx.lineTo(previewSize * 0.5, previewSize * 0.88);
+        previewCtx.stroke();
+      }
+      if (tile.id === 'trap') {
+        previewCtx.strokeStyle = 'rgba(255,255,255,0.42)';
+        previewCtx.lineWidth = Math.max(1, previewSize * 0.06);
+        previewCtx.beginPath();
+        previewCtx.moveTo(previewSize * 0.22, previewSize * 0.22);
+        previewCtx.lineTo(previewSize * 0.78, previewSize * 0.78);
+        previewCtx.moveTo(previewSize * 0.78, previewSize * 0.22);
+        previewCtx.lineTo(previewSize * 0.22, previewSize * 0.78);
+        previewCtx.stroke();
+      }
+      if (tile.id === 'pillar') {
+        previewCtx.fillStyle = 'rgba(255,255,255,0.25)';
+        previewCtx.fillRect(previewSize * 0.28, previewSize * 0.18, previewSize * 0.44, previewSize * 0.64);
+      }
+      if (tile.id === 'prison-cell') {
+        previewCtx.strokeStyle = 'rgba(225,232,240,0.42)';
+        previewCtx.lineWidth = Math.max(1, previewSize * 0.05);
+        for (let col = 0.2; col <= 0.8; col += 0.18) {
+          previewCtx.beginPath();
+          previewCtx.moveTo(previewSize * col, previewSize * 0.14);
+          previewCtx.lineTo(previewSize * col, previewSize * 0.86);
+          previewCtx.stroke();
+        }
+        previewCtx.fillStyle = 'rgba(15,23,42,0.42)';
+        previewCtx.fillRect(previewSize * 0.14, previewSize * 0.18, previewSize * 0.72, previewSize * 0.1);
+        previewCtx.fillRect(previewSize * 0.14, previewSize * 0.72, previewSize * 0.72, previewSize * 0.1);
+      }
+
+      return preview;
     }
 
     function drawLayerTiles(layer) {
@@ -503,9 +789,25 @@
           const tileId = layer.tiles[y][x];
           if (tileId === 'void') continue;
           const tile = getTileDef(tileId);
+          if (drawTileTextureImage(ctx, tile, x, y, state.tileSize)) continue;
+          ctx.save();
+          if (tileId === 'barrel') {
+            ctx.beginPath();
+            ctx.ellipse(
+              x * state.tileSize + state.tileSize * 0.5,
+              y * state.tileSize + state.tileSize * 0.5,
+              state.tileSize * 0.28,
+              state.tileSize * 0.28,
+              0,
+              0,
+              Math.PI * 2
+            );
+            ctx.clip();
+          }
           ctx.fillStyle = tile.color;
           ctx.fillRect(x * state.tileSize, y * state.tileSize, state.tileSize, state.tileSize);
           drawPixelTexture(layer, tileId, x, y, state.tileSize, tile.color);
+          ctx.restore();
           drawTileOverlay(tileId, x, y, state.tileSize);
         }
       }
@@ -857,7 +1159,10 @@
           const btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'tile-btn' + (state.selectedTile === tile.id ? ' active' : '');
-          btn.innerHTML = `<span class="swatch" style="background:${tile.color}"></span><span>${tile.label}</span>`;
+          btn.appendChild(createTileTexturePreview(tile));
+          const label = document.createElement('span');
+          label.textContent = tile.label;
+          btn.appendChild(label);
           btn.addEventListener('click', () => {
             state.selectedTile = tile.id;
             state.selectedAssetId = null;
@@ -1310,6 +1615,20 @@
       updateStatus(`Cursor: <strong>${x}, ${y}</strong>`);
     }
 
+    function updateMoveDrag(x, y) {
+      if (!state.moveDrag) return;
+      const offsetX = x - state.moveDrag.startX;
+      const offsetY = y - state.moveDrag.startY;
+      if (offsetX === state.moveDrag.lastOffsetX && offsetY === state.moveDrag.lastOffsetY) return;
+
+      state.moveDrag.lastOffsetX = offsetX;
+      state.moveDrag.lastOffsetY = offsetY;
+      moveLayerContent(state.moveDrag.layer, state.moveDrag.snapshot, offsetX, offsetY);
+      drawMap();
+      updateStatus(`Verschiebung: <strong>${offsetX}, ${offsetY}</strong>`);
+      scheduleMapDraftSave();
+    }
+
     function addLayer() {
       pushHistory();
       const layer = createLayer('Layer');
@@ -1504,6 +1823,22 @@
         return;
       }
 
+      if (state.selectedTool === 'move') {
+        pushHistory();
+        state.isDrawing = true;
+        state.dragStart = { x, y };
+        state.moveDrag = {
+          startX: x,
+          startY: y,
+          lastOffsetX: 0,
+          lastOffsetY: 0,
+          layer: editableLayer,
+          snapshot: cloneLayerContent(editableLayer)
+        };
+        updateStatus('Verschiebung: <strong>0, 0</strong>');
+        return;
+      }
+
       if (state.selectedTool === 'rect' || state.selectedTool === 'circle') {
         state.isDrawing = true;
         state.dragStart = { x, y };
@@ -1529,7 +1864,9 @@
         return;
       }
 
-      if (state.isDrawing && (state.selectedTool === 'paint' || state.selectedTool === 'erase')) {
+      if (state.isDrawing && state.selectedTool === 'move' && state.moveDrag) {
+        updateMoveDrag(x, y);
+      } else if (state.isDrawing && (state.selectedTool === 'paint' || state.selectedTool === 'erase')) {
         applyTool(x, y);
       } else if (state.isDrawing && (state.selectedTool === 'rect' || state.selectedTool === 'circle') && state.dragStart) {
         drawMap({ tool: state.selectedTool, start: state.dragStart, end: { x, y } });
@@ -1553,6 +1890,13 @@
         endResizeDrag();
         return;
       }
+      if (state.isDrawing && state.selectedTool === 'move' && state.moveDrag) {
+        updateStatus(`Layer verschoben: <strong>${state.moveDrag.lastOffsetX}, ${state.moveDrag.lastOffsetY}</strong>`);
+        state.moveDrag = null;
+        state.isDrawing = false;
+        state.dragStart = null;
+        return;
+      }
       if (state.isDrawing && state.dragStart && state.hoverCell && (state.selectedTool === 'rect' || state.selectedTool === 'circle')) {
         pushHistory();
         applyShape(state.dragStart.x, state.dragStart.y, state.hoverCell.x, state.hoverCell.y, state.selectedTool);
@@ -1564,10 +1908,21 @@
     });
 
     window.addEventListener('mousemove', (evt) => {
+      if (state.isDrawing && state.selectedTool === 'move' && state.moveDrag) {
+        const rect = canvas.getBoundingClientRect();
+        const x = Math.floor((evt.clientX - rect.left) / (state.tileSize * state.zoom));
+        const y = Math.floor((evt.clientY - rect.top) / (state.tileSize * state.zoom));
+        state.hoverCell = {
+          x: clamp(x, 0, state.mapWidth - 1),
+          y: clamp(y, 0, state.mapHeight - 1)
+        };
+        updateMoveDrag(state.hoverCell.x, state.hoverCell.y);
+      }
       updateResizeDrag(evt);
     });
 
     window.addEventListener('focus', () => {
+      refreshSharedTiles();
       void loadAssetLibrary().then(() => {
         renderAssetLibrary();
         updateStatus();
@@ -1575,6 +1930,9 @@
     });
 
     window.addEventListener('storage', (event) => {
+      if (event.key === window.DND_TILE_SHARED.CUSTOM_TILE_STORAGE_KEY) {
+        refreshSharedTiles();
+      }
       if (event.key !== ASSET_STORAGE_KEY) return;
       void loadAssetLibrary().then(() => {
         renderAssetLibrary();
@@ -1678,6 +2036,7 @@
       if (e.key === '4') state.selectedTool = 'rect';
       if (e.key === '5') state.selectedTool = 'circle';
       if (e.key === '6') state.selectedTool = 'text';
+      if (e.key === '7') state.selectedTool = 'move';
       if (e.key.toLowerCase() === 'q' && getSelectedAsset() && state.selectedTool === 'paint') {
         state.selectedAssetRotation = normalizeRotation(state.selectedAssetRotation - 1);
       }

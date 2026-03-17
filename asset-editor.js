@@ -34,72 +34,7 @@ BUTTON_ICONS.delete = '✕';
 
 BUTTON_ICONS.move = '✋';
 
-const PALETTE = [
-  '#00000000',
-  '#8f9aa8',
-  '#374151',
-  '#8b5a2b',
-  '#16a34a',
-  '#166534',
-  '#3f9b4a',
-  '#d4b36a',
-  '#7c4a2d',
-  '#2563eb',
-  '#60a5fa',
-  '#dc2626',
-  '#b91c1c',
-  '#9ca3af',
-  '#f8fafc',
-  '#111827'
-];
-
-const TILE_CATEGORIES = [
-  {
-    id: 'basic',
-    label: 'BASIC',
-    tiles: [
-      { id: 'stone', label: 'Stone', color: '#8f9aa8' },
-      { id: 'wood', label: 'Wood', color: '#8b5a2b' },
-      { id: 'earth', label: 'Earth', color: '#7a5a3a' },
-      { id: 'sand', label: 'Sand', color: '#d4b36a' },
-      { id: 'water', label: 'Water', color: '#2563eb' }
-    ]
-  },
-  {
-    id: 'nature',
-    label: 'NATURE',
-    tiles: [
-      { id: 'grass', label: 'Grass', color: '#16a34a' },
-      { id: 'trees', label: 'Trees', color: '#166534' },
-      { id: 'bush', label: 'Bush', color: '#3f9b4a' },
-      { id: 'dirt', label: 'Dirt', color: '#7c4a2d' },
-      { id: 'lava', label: 'Lava', color: '#dc2626' }
-    ]
-  },
-  {
-    id: 'village',
-    label: 'VILLAGE',
-    tiles: [
-      { id: 'floor', label: 'Floor', color: '#6b7280' },
-      { id: 'wall', label: 'Wall', color: '#374151' },
-      { id: 'roof', label: 'Roof', color: '#b5653b' },
-      { id: 'door', label: 'Door', color: '#a16207' },
-      { id: 'window', label: 'Window', color: '#60a5fa' },
-      { id: 'fence', label: 'Fence', color: '#9a6a3f' }
-    ]
-  },
-  {
-    id: 'dungeon',
-    label: 'DUNGEON',
-    tiles: [
-      { id: 'stone-floor', label: 'Stone Floor', color: '#717c88' },
-      { id: 'brick-wall', label: 'Brick Wall', color: '#5c4b51' },
-      { id: 'stairs', label: 'Stairs', color: '#9ca3af' },
-      { id: 'trap', label: 'Trap', color: '#b91c1c' },
-      { id: 'pillar', label: 'Pillar', color: '#94a3b8' }
-    ]
-  }
-];
+const { PALETTE, TILE_CATEGORIES, TILE_MAP, TILE_BY_COLOR } = window.DND_TILE_SHARED;
 
 const canvas = document.getElementById('assetCanvas');
 const ctx = canvas.getContext('2d');
@@ -122,6 +57,7 @@ const rgbBInput = document.getElementById('rgbBInput');
 const assetResizeHandleRight = document.getElementById('assetResizeHandleRight');
 const assetResizeHandleBottom = document.getElementById('assetResizeHandleBottom');
 const assetResizeHandleCorner = document.getElementById('assetResizeHandleCorner');
+const tileTextureCache = new Map();
 
 const state = {
   width: 20,
@@ -244,6 +180,40 @@ function setStatus(message) {
   assetStatus.innerHTML = message;
 }
 
+function getTileDef(id) {
+  return TILE_MAP.get(id) || null;
+}
+
+function getTileByColor(color) {
+  return color ? TILE_BY_COLOR.get(color.toLowerCase()) || null : null;
+}
+
+function getTileTextureImage(tile) {
+  const textureSource = tile?.textureDataUrl || tile?.texturePath;
+  if (!textureSource) return null;
+  if (tileTextureCache.has(textureSource)) return tileTextureCache.get(textureSource);
+
+  const image = new Image();
+  image.onload = () => {
+    drawEditor();
+    drawPreview();
+    renderAssetTiles();
+  };
+  image.src = textureSource;
+  tileTextureCache.set(textureSource, image);
+  return image;
+}
+
+function drawTileTextureImage(targetCtx, tile, x, y, size) {
+  const image = getTileTextureImage(tile);
+  if (!image?.complete || !image.naturalWidth) return false;
+  targetCtx.save();
+  targetCtx.imageSmoothingEnabled = false;
+  targetCtx.drawImage(image, x * size, y * size, size, size);
+  targetCtx.restore();
+  return true;
+}
+
 function updateStatus(extra = '') {
   setStatus(`
     Tool: <strong>${TOOL_DEFS.find(tool => tool.id === state.currentTool)?.label || '-'}</strong><br>
@@ -363,17 +333,245 @@ function applyAssetResize(newWidth, newHeight, options = {}) {
   scheduleAssetDraftSave();
 }
 
+function refreshSharedTiles() {
+  window.DND_TILE_SHARED.refreshFromStorage();
+  const validTile = state.currentTileId && TILE_MAP.has(state.currentTileId);
+  if (!validTile) state.currentTileId = null;
+  renderAssetTiles();
+  drawEditor();
+  drawPreview();
+}
+
+function hash2D(x, y, seed = 0) {
+  const n = Math.sin((x + 1) * 127.1 + (y + 1) * 311.7 + seed * 74.7) * 43758.5453123;
+  return n - Math.floor(n);
+}
+
+function shadeHex(hex, percent) {
+  const num = parseInt(hex.replace('#', ''), 16);
+  const r = Math.min(255, Math.max(0, ((num >> 16) & 255) + percent));
+  const g = Math.min(255, Math.max(0, ((num >> 8) & 255) + percent));
+  const b = Math.min(255, Math.max(0, (num & 255) + percent));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function hasSameTileColor(x, y, color) {
+  return x >= 0 && y >= 0 && x < state.width && y < state.height && (state.pixels[y][x] || null) === color;
+}
+
+function drawPixelTexture(targetCtx, tileId, x, y, size, baseColor) {
+  const pixelStep = Math.max(2, Math.floor(size / 6));
+  const worldBaseX = Math.floor(x / 2) * 2;
+  const worldBaseY = Math.floor(y / 2) * 2;
+  const inTwoByTwo = hasSameTileColor(x + 1, y, baseColor) && hasSameTileColor(x, y + 1, baseColor) && hasSameTileColor(x + 1, y + 1, baseColor)
+    || hasSameTileColor(x - 1, y, baseColor) && hasSameTileColor(x, y + 1, baseColor) && hasSameTileColor(x - 1, y + 1, baseColor)
+    || hasSameTileColor(x + 1, y, baseColor) && hasSameTileColor(x, y - 1, baseColor) && hasSameTileColor(x + 1, y - 1, baseColor)
+    || hasSameTileColor(x - 1, y, baseColor) && hasSameTileColor(x, y - 1, baseColor) && hasSameTileColor(x - 1, y - 1, baseColor);
+
+  const patternOffsetX = inTwoByTwo ? (x - worldBaseX) * Math.floor(size / 2) : 0;
+  const patternOffsetY = inTwoByTwo ? (y - worldBaseY) * Math.floor(size / 2) : 0;
+
+  for (let py = 0; py < size; py += pixelStep) {
+    for (let px = 0; px < size; px += pixelStep) {
+      const wx = Math.floor((patternOffsetX + px) / pixelStep);
+      const wy = Math.floor((patternOffsetY + py) / pixelStep);
+      const noise = hash2D(wx + x * 3, wy + y * 5, tileId.length);
+      let shade = 0;
+
+      if (tileId === 'grass' || tileId === 'bush' || tileId === 'trees') shade = noise > 0.75 ? 18 : noise < 0.18 ? -18 : 0;
+      else if (tileId === 'water') shade = noise > 0.7 ? 24 : noise < 0.2 ? -20 : 0;
+      else if (tileId === 'wood' || tileId === 'fence' || tileId === 'treasure-chest' || tileId === 'bed' || tileId === 'barrel') shade = (wy % 3 === 0) ? 14 : noise < 0.15 ? -16 : 0;
+      else if (tileId === 'roof') shade = (wy % 2 === 0) ? 18 : noise < 0.2 ? -18 : 0;
+      else if (tileId === 'stone' || tileId === 'wall' || tileId === 'stone-floor' || tileId === 'brick-wall' || tileId === 'pillar' || tileId === 'prison-cell') shade = noise > 0.8 ? 16 : noise < 0.18 ? -22 : 0;
+      else if (tileId === 'sand') shade = noise > 0.7 ? 12 : noise < 0.22 ? -10 : 0;
+      else if (tileId === 'dirt' || tileId === 'earth' || tileId === 'trap') shade = noise > 0.75 ? 10 : noise < 0.2 ? -14 : 0;
+      else if (tileId === 'lava') shade = noise > 0.72 ? 24 : noise < 0.25 ? -14 : 0;
+      else if (tileId === 'floor' || tileId === 'stairs') shade = noise > 0.82 ? 10 : noise < 0.14 ? -10 : 0;
+      else shade = noise > 0.8 ? 8 : noise < 0.18 ? -8 : 0;
+
+      targetCtx.fillStyle = shadeHex(baseColor, shade);
+      targetCtx.fillRect(x * size + px, y * size + py, Math.min(pixelStep, size - px), Math.min(pixelStep, size - py));
+    }
+  }
+}
+
+function drawTileOverlay(targetCtx, tileId, x, y, size) {
+  if (tileId === 'door') {
+    targetCtx.fillStyle = 'rgba(255,255,255,0.25)';
+    targetCtx.fillRect(x * size + size * 0.2, y * size + size * 0.42, size * 0.6, size * 0.16);
+  }
+  if (tileId === 'window') {
+    targetCtx.fillStyle = 'rgba(255,255,255,0.35)';
+    targetCtx.fillRect(x * size + size * 0.18, y * size + size * 0.18, size * 0.64, size * 0.64);
+    targetCtx.fillStyle = 'rgba(15,23,42,0.55)';
+    targetCtx.fillRect(x * size + size * 0.47, y * size + size * 0.18, size * 0.06, size * 0.64);
+    targetCtx.fillRect(x * size + size * 0.18, y * size + size * 0.47, size * 0.64, size * 0.06);
+  }
+  if (tileId === 'stairs') {
+    targetCtx.fillStyle = 'rgba(255,255,255,0.22)';
+    for (let i = 0; i < 5; i++) {
+      const inset = i * (size * 0.08);
+      targetCtx.fillRect(x * size + inset, y * size + size * 0.72 - inset, size - inset * 1.2, size * 0.06);
+    }
+  }
+  if (tileId === 'fence') {
+    targetCtx.fillStyle = 'rgba(255,255,255,0.28)';
+    targetCtx.fillRect(x * size + size * 0.18, y * size + size * 0.28, size * 0.08, size * 0.44);
+    targetCtx.fillRect(x * size + size * 0.46, y * size + size * 0.28, size * 0.08, size * 0.44);
+    targetCtx.fillRect(x * size + size * 0.74, y * size + size * 0.28, size * 0.08, size * 0.44);
+    targetCtx.fillRect(x * size + size * 0.16, y * size + size * 0.38, size * 0.68, size * 0.06);
+    targetCtx.fillRect(x * size + size * 0.16, y * size + size * 0.58, size * 0.68, size * 0.06);
+  }
+  if (tileId === 'treasure-chest') {
+    targetCtx.fillStyle = 'rgba(41,24,12,0.5)';
+    targetCtx.fillRect(x * size + size * 0.18, y * size + size * 0.42, size * 0.64, size * 0.3);
+    targetCtx.fillStyle = 'rgba(181,137,58,0.55)';
+    targetCtx.fillRect(x * size + size * 0.18, y * size + size * 0.36, size * 0.64, size * 0.08);
+    targetCtx.fillRect(x * size + size * 0.46, y * size + size * 0.36, size * 0.08, size * 0.36);
+  }
+  if (tileId === 'bed') {
+    targetCtx.fillStyle = 'rgba(245,245,245,0.55)';
+    targetCtx.fillRect(x * size + size * 0.18, y * size + size * 0.18, size * 0.22, size * 0.18);
+    targetCtx.fillStyle = 'rgba(153,27,27,0.42)';
+    targetCtx.fillRect(x * size + size * 0.18, y * size + size * 0.36, size * 0.62, size * 0.34);
+    targetCtx.fillStyle = 'rgba(60,38,24,0.45)';
+    targetCtx.fillRect(x * size + size * 0.16, y * size + size * 0.14, size * 0.68, size * 0.06);
+    targetCtx.fillRect(x * size + size * 0.16, y * size + size * 0.72, size * 0.68, size * 0.06);
+  }
+  if (tileId === 'barrel') {
+    targetCtx.fillStyle = 'rgba(60,38,24,0.18)';
+    targetCtx.beginPath();
+    targetCtx.ellipse(x * size + size * 0.5, y * size + size * 0.5, size * 0.28, size * 0.28, 0, 0, Math.PI * 2);
+    targetCtx.fill();
+    targetCtx.strokeStyle = 'rgba(220,220,220,0.38)';
+    targetCtx.lineWidth = Math.max(1, size * 0.05);
+    targetCtx.beginPath();
+    targetCtx.arc(x * size + size * 0.5, y * size + size * 0.5, size * 0.23, 0, Math.PI * 2);
+    targetCtx.stroke();
+    targetCtx.beginPath();
+    targetCtx.moveTo(x * size + size * 0.34, y * size + size * 0.5);
+    targetCtx.lineTo(x * size + size * 0.66, y * size + size * 0.5);
+    targetCtx.stroke();
+  }
+  if (tileId === 'roof') {
+    targetCtx.strokeStyle = 'rgba(255,245,235,0.28)';
+    targetCtx.lineWidth = Math.max(1, size * 0.05);
+    for (let row = 0.24; row <= 0.78; row += 0.18) {
+      targetCtx.beginPath();
+      targetCtx.moveTo(x * size + size * 0.12, y * size + size * row);
+      targetCtx.lineTo(x * size + size * 0.88, y * size + size * row);
+      targetCtx.stroke();
+    }
+    targetCtx.strokeStyle = 'rgba(120,53,15,0.32)';
+    targetCtx.beginPath();
+    targetCtx.moveTo(x * size + size * 0.5, y * size + size * 0.12);
+    targetCtx.lineTo(x * size + size * 0.5, y * size + size * 0.88);
+    targetCtx.stroke();
+  }
+  if (tileId === 'trap') {
+    targetCtx.strokeStyle = 'rgba(255,255,255,0.42)';
+    targetCtx.lineWidth = Math.max(1, size * 0.06);
+    targetCtx.beginPath();
+    targetCtx.moveTo(x * size + size * 0.22, y * size + size * 0.22);
+    targetCtx.lineTo(x * size + size * 0.78, y * size + size * 0.78);
+    targetCtx.moveTo(x * size + size * 0.78, y * size + size * 0.22);
+    targetCtx.lineTo(x * size + size * 0.22, y * size + size * 0.78);
+    targetCtx.stroke();
+  }
+  if (tileId === 'pillar') {
+    targetCtx.fillStyle = 'rgba(255,255,255,0.25)';
+    targetCtx.fillRect(x * size + size * 0.28, y * size + size * 0.18, size * 0.44, size * 0.64);
+  }
+  if (tileId === 'prison-cell') {
+    targetCtx.strokeStyle = 'rgba(225,232,240,0.42)';
+    targetCtx.lineWidth = Math.max(1, size * 0.05);
+    for (let col = 0.2; col <= 0.8; col += 0.18) {
+      targetCtx.beginPath();
+      targetCtx.moveTo(x * size + size * col, y * size + size * 0.14);
+      targetCtx.lineTo(x * size + size * col, y * size + size * 0.86);
+      targetCtx.stroke();
+    }
+    targetCtx.fillStyle = 'rgba(15,23,42,0.42)';
+    targetCtx.fillRect(x * size + size * 0.14, y * size + size * 0.18, size * 0.72, size * 0.1);
+    targetCtx.fillRect(x * size + size * 0.14, y * size + size * 0.72, size * 0.72, size * 0.1);
+  }
+}
+
+function drawTileTextureCell(targetCtx, tileId, color, x, y, size) {
+  const tile = getTileDef(tileId);
+  if (tile && drawTileTextureImage(targetCtx, tile, x, y, size)) return;
+
+  targetCtx.save();
+  if (tileId === 'barrel') {
+    targetCtx.beginPath();
+    targetCtx.ellipse(
+      x * size + size * 0.5,
+      y * size + size * 0.5,
+      size * 0.28,
+      size * 0.28,
+      0,
+      0,
+      Math.PI * 2
+    );
+    targetCtx.clip();
+  }
+  targetCtx.fillStyle = color;
+  targetCtx.fillRect(x * size, y * size, size, size);
+  drawPixelTexture(targetCtx, tileId, x, y, size, color);
+  targetCtx.restore();
+  drawTileOverlay(targetCtx, tileId, x, y, size);
+}
+
+function createTileTexturePreview(tile, previewSize = 18) {
+  const preview = document.createElement('canvas');
+  preview.width = previewSize;
+  preview.height = previewSize;
+  const previewContext = preview.getContext('2d');
+  previewContext.imageSmoothingEnabled = false;
+
+  if (drawTileTextureImage(previewContext, tile, 0, 0, previewSize)) {
+    preview.className = 'swatch swatch-canvas';
+    return preview;
+  }
+
+  previewContext.save();
+  if (tile.id === 'barrel') {
+    previewContext.beginPath();
+    previewContext.ellipse(
+      previewSize * 0.5,
+      previewSize * 0.5,
+      previewSize * 0.28,
+      previewSize * 0.28,
+      0,
+      0,
+      Math.PI * 2
+    );
+    previewContext.clip();
+  }
+  previewContext.fillStyle = tile.color;
+  previewContext.fillRect(0, 0, previewSize, previewSize);
+  drawPixelTexture(previewContext, tile.id, 0, 0, previewSize, tile.color);
+  previewContext.restore();
+  drawTileOverlay(previewContext, tile.id, 0, 0, previewSize);
+  preview.className = 'swatch swatch-canvas';
+  return preview;
+}
+
 function drawEditor(preview = null) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#0b1220';
+  ctx.fillStyle = '#0f0f0f';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   for (let y = 0; y < state.height; y++) {
     for (let x = 0; x < state.width; x++) {
       const color = state.pixels[y][x];
       if (!color) continue;
-      ctx.fillStyle = color;
-      ctx.fillRect(x * state.cellSize, y * state.cellSize, state.cellSize, state.cellSize);
+      const tile = getTileByColor(color);
+      if (tile) drawTileTextureCell(ctx, tile.id, color, x, y, state.cellSize);
+      else {
+        ctx.fillStyle = color;
+        ctx.fillRect(x * state.cellSize, y * state.cellSize, state.cellSize, state.cellSize);
+      }
     }
   }
 
@@ -388,8 +586,11 @@ function drawEditor(preview = null) {
   }
 
   if (state.showGrid) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.save();
+    ctx.globalCompositeOperation = 'difference';
+    ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.18;
     for (let x = 0; x <= state.width; x++) {
       ctx.beginPath();
       ctx.moveTo(x * state.cellSize + 0.5, 0);
@@ -405,7 +606,7 @@ function drawEditor(preview = null) {
     }
 
     const crossSize = Math.max(3, Math.floor(state.cellSize * 0.18));
-    ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+    ctx.globalAlpha = 0.55;
     for (let x = 0; x <= state.width; x += 2) {
       for (let y = 0; y <= state.height; y += 2) {
         const px = x * state.cellSize + 0.5;
@@ -418,12 +619,13 @@ function drawEditor(preview = null) {
         ctx.stroke();
       }
     }
+    ctx.restore();
   }
 }
 
 function drawPreview() {
   previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-  previewCtx.fillStyle = '#0b1220';
+  previewCtx.fillStyle = '#0f0f0f';
   previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
 
   const size = Math.floor(Math.min(
@@ -437,8 +639,16 @@ function drawPreview() {
     for (let x = 0; x < state.width; x++) {
       const color = state.pixels[y][x];
       if (!color) continue;
-      previewCtx.fillStyle = color;
-      previewCtx.fillRect(offsetX + x * size, offsetY + y * size, size, size);
+      const tile = getTileByColor(color);
+      if (tile) {
+        previewCtx.save();
+        previewCtx.translate(offsetX, offsetY);
+        drawTileTextureCell(previewCtx, tile.id, color, x, y, size);
+        previewCtx.restore();
+      } else {
+        previewCtx.fillStyle = color;
+        previewCtx.fillRect(offsetX + x * size, offsetY + y * size, size, size);
+      }
     }
   }
 }
@@ -504,7 +714,10 @@ function renderAssetTiles() {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'tile-btn' + (state.currentTileId === tile.id ? ' active' : '');
-      btn.innerHTML = `<span class="swatch" style="background:${tile.color}"></span><span>${tile.label}</span>`;
+      btn.appendChild(createTileTexturePreview(tile));
+      const label = document.createElement('span');
+      label.textContent = tile.label;
+      btn.appendChild(label);
       btn.addEventListener('click', () => {
         state.currentTileId = tile.id;
         state.openTileCategories.add(category.id);
@@ -512,6 +725,7 @@ function renderAssetTiles() {
           keepTileSelection: true,
           statusMessage: `Tile ausgewaehlt: <strong>${tile.label}</strong>`
         });
+        renderAssetTiles();
         scheduleAssetDraftSave();
       });
       grid.appendChild(btn);
@@ -1276,6 +1490,11 @@ window.addEventListener('keydown', (event) => {
 
 window.addEventListener('pagehide', saveAssetDraft);
 window.addEventListener('beforeunload', saveAssetDraft);
+window.addEventListener('focus', refreshSharedTiles);
+window.addEventListener('storage', (event) => {
+  if (event.key !== window.DND_TILE_SHARED.CUSTOM_TILE_STORAGE_KEY) return;
+  refreshSharedTiles();
+});
 
 async function init() {
   const repoAssetCount = await refreshAssetLibrary({ persist: true });

@@ -15,6 +15,7 @@
     ];
 
     const ASSET_STORAGE_KEY = 'dnd-map-editor-assets';
+    const MAP_DRAFT_STORAGE_KEY = 'dnd-map-editor-map-draft';
 
     const TILE_CATEGORIES = [
       {
@@ -140,6 +141,8 @@
       openTileCategories: new Set(['basic']),
       resizeDrag: null
     };
+
+    let draftSaveTimer = null;
 
     function createEmptyAssetItems() {
       return [];
@@ -566,6 +569,96 @@
       };
     }
 
+    function buildMapDraftPayload() {
+      return {
+        version: 1,
+        mapWidth: state.mapWidth,
+        mapHeight: state.mapHeight,
+        tileSize: state.tileSize,
+        zoom: state.zoom,
+        showGrid: state.showGrid,
+        selectedTile: state.selectedTile,
+        selectedTool: state.selectedTool,
+        selectedAssetId: state.selectedAssetId,
+        selectedAssetRotation: state.selectedAssetRotation,
+        activeLayerId: state.activeLayerId,
+        nextLayerId: state.nextLayerId,
+        openTileCategories: Array.from(state.openTileCategories),
+        layers: cloneStateSnapshot().layers
+      };
+    }
+
+    function saveMapDraft() {
+      try {
+        localStorage.setItem(MAP_DRAFT_STORAGE_KEY, JSON.stringify(buildMapDraftPayload()));
+      } catch {
+        // Ignore storage failures so editing can continue.
+      }
+    }
+
+    function scheduleMapDraftSave() {
+      window.clearTimeout(draftSaveTimer);
+      draftSaveTimer = window.setTimeout(() => {
+        draftSaveTimer = null;
+        saveMapDraft();
+      }, 120);
+    }
+
+    function loadMapDraft() {
+      try {
+        const raw = localStorage.getItem(MAP_DRAFT_STORAGE_KEY);
+        if (!raw) return false;
+
+        const draft = JSON.parse(raw);
+        if (!draft || !Array.isArray(draft.layers) || !draft.layers.length) return false;
+
+        state.mapWidth = clamp(parseInt(draft.mapWidth, 10) || state.mapWidth, 4, 200);
+        state.mapHeight = clamp(parseInt(draft.mapHeight, 10) || state.mapHeight, 4, 200);
+        state.tileSize = clamp(parseInt(draft.tileSize, 10) || state.tileSize, 12, 64);
+        state.zoom = clamp(Number(draft.zoom) || 1, 0.5, 4);
+        state.showGrid = draft.showGrid !== false;
+        state.selectedTile = TILE_MAP.has(draft.selectedTile) ? draft.selectedTile : state.selectedTile;
+        state.selectedTool = TOOLS.some(tool => tool.id === draft.selectedTool) ? draft.selectedTool : state.selectedTool;
+        state.selectedAssetId = typeof draft.selectedAssetId === 'string' ? draft.selectedAssetId : null;
+        state.selectedAssetRotation = normalizeRotation(parseInt(draft.selectedAssetRotation, 10) || 0);
+        state.openTileCategories = new Set(
+          Array.isArray(draft.openTileCategories) && draft.openTileCategories.length
+            ? draft.openTileCategories
+            : ['basic']
+        );
+        state.nextLayerId = Math.max(parseInt(draft.nextLayerId, 10) || 2, 2);
+        state.layers = buildResizedLayers(
+          draft.layers.map(layer => ({
+            id: layer.id,
+            name: layer.name || `Layer ${layer.id}`,
+            visible: layer.visible !== false,
+            tiles: Array.isArray(layer.tiles) ? layer.tiles : createEmptyTiles(state.mapWidth, state.mapHeight, 'void'),
+            textItems: Array.isArray(layer.textItems) ? layer.textItems : [],
+            assetItems: Array.isArray(layer.assetItems) ? layer.assetItems.map(item => ({
+              x: item.x,
+              y: item.y,
+              asset: {
+                ...item.asset,
+                pixels: Array.isArray(item.asset?.pixels) ? item.asset.pixels.map(row => [...row]) : []
+              }
+            })) : []
+          })),
+          parseInt(draft.mapWidth, 10) || state.mapWidth,
+          parseInt(draft.mapHeight, 10) || state.mapHeight,
+          state.mapWidth,
+          state.mapHeight
+        );
+        state.activeLayerId = state.layers.some(layer => layer.id === draft.activeLayerId)
+          ? draft.activeLayerId
+          : state.layers[0].id;
+        state.history = [];
+        state.redoStack = [];
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
     function syncMapInputs() {
       document.getElementById('mapWidth').value = state.mapWidth;
       document.getElementById('mapHeight').value = state.mapHeight;
@@ -633,6 +726,7 @@
       state.history.push(cloneStateSnapshot());
       if (state.history.length > 100) state.history.shift();
       state.redoStack = [];
+      scheduleMapDraftSave();
     }
 
     function restoreSnapshot(snapshot) {
@@ -661,6 +755,7 @@
       renderLayerList();
       drawMap();
       updateStatus();
+      scheduleMapDraftSave();
     }
 
     function undo() {
@@ -687,6 +782,7 @@
         wrapper.addEventListener('toggle', () => {
           if (wrapper.open) state.openTileCategories.add(category.id);
           else state.openTileCategories.delete(category.id);
+          scheduleMapDraftSave();
         });
 
         const summary = document.createElement('summary');
@@ -711,6 +807,7 @@
             renderAssetLibrary();
             updateStatus();
             drawMap();
+            scheduleMapDraftSave();
           });
           grid.appendChild(btn);
         });
@@ -732,6 +829,7 @@
           renderToolButtons();
           drawMap();
           updateStatus();
+          scheduleMapDraftSave();
         });
         toolButtons.appendChild(btn);
       });
@@ -749,6 +847,7 @@
       if (state.selectedAssetId && !state.assetLibrary.some(asset => asset.id === state.selectedAssetId)) {
         state.selectedAssetId = null;
         state.selectedAssetRotation = 0;
+        scheduleMapDraftSave();
       }
     }
 
@@ -800,6 +899,7 @@
           renderToolButtons();
           drawMap();
           updateStatus(`Asset ausgewählt: <strong>${asset.name}</strong>`);
+          scheduleMapDraftSave();
         });
 
         const head = document.createElement('div');
@@ -832,6 +932,7 @@
           state.selectedAssetRotation = 0;
           renderAssetLibrary();
           updateStatus(`Asset ausgewählt: <strong>${asset.name}</strong>`);
+          scheduleMapDraftSave();
         });
 
         actions.appendChild(selectBtn);
@@ -861,6 +962,7 @@
           state.activeLayerId = layer.id;
           renderLayerList();
           updateStatus();
+          scheduleMapDraftSave();
         });
 
         item.addEventListener('dragstart', (event) => {
@@ -1184,6 +1286,7 @@
       const newHeight = parseInt(document.getElementById('mapHeight').value, 10) || 20;
       const newTileSize = parseInt(document.getElementById('tileSize').value, 10) || 24;
       applyMapResize(newWidth, newHeight, newTileSize);
+      scheduleMapDraftSave();
     }
 
     function saveJson() {
@@ -1264,6 +1367,7 @@
           renderLayerList();
           drawMap();
           updateStatus('JSON geladen');
+          scheduleMapDraftSave();
         } catch (err) {
           alert('Datei konnte nicht geladen werden: ' + err.message);
         }
@@ -1326,6 +1430,7 @@
       [resizeHandleRight, resizeHandleBottom, resizeHandleCorner].forEach(handle => handle.classList.remove('active'));
       document.body.style.userSelect = '';
       updateStatus('Map-Größe per Ziehen angepasst');
+      scheduleMapDraftSave();
     }
 
     canvas.addEventListener('mousedown', (evt) => {
@@ -1394,6 +1499,7 @@
         pushHistory();
         applyShape(state.dragStart.x, state.dragStart.y, state.hoverCell.x, state.hoverCell.y, state.selectedTool);
         drawMap();
+        scheduleMapDraftSave();
       }
       state.isDrawing = false;
       state.dragStart = null;
@@ -1430,6 +1536,7 @@
       loadAssetLibrary();
       renderAssetLibrary();
       updateStatus('Asset-Bibliothek aktualisiert');
+      scheduleMapDraftSave();
     });
     document.getElementById('resizeMapBtn').addEventListener('click', resizeMapPreserve);
     document.getElementById('saveJsonBtn').addEventListener('click', saveJson);
@@ -1457,6 +1564,7 @@
       updateStatus(state.selectedAssetId
         ? `Asset ausgewaehlt: <strong>${asset.name}</strong>`
         : 'Asset-Auswahl aufgehoben');
+      scheduleMapDraftSave();
     }, true);
 
     document.getElementById('toggleGridBtn').addEventListener('click', (e) => {
@@ -1465,24 +1573,28 @@
       e.target.textContent = state.showGrid ? 'Grid an' : 'Grid aus';
       drawMap();
       updateStatus();
+      scheduleMapDraftSave();
     });
 
     document.getElementById('zoomInBtn').addEventListener('click', () => {
       state.zoom = clamp(Number((state.zoom + 0.25).toFixed(2)), 0.5, 4);
       resizeCanvas();
       updateStatus();
+      scheduleMapDraftSave();
     });
 
     document.getElementById('zoomOutBtn').addEventListener('click', () => {
       state.zoom = clamp(Number((state.zoom - 0.25).toFixed(2)), 0.5, 4);
       resizeCanvas();
       updateStatus();
+      scheduleMapDraftSave();
     });
 
     document.getElementById('zoomResetBtn').addEventListener('click', () => {
       state.zoom = 1;
       resizeCanvas();
       updateStatus();
+      scheduleMapDraftSave();
     });
 
     window.addEventListener('keydown', (e) => {
@@ -1519,26 +1631,38 @@
       resizeCanvas();
       drawMap();
       updateStatus();
+      scheduleMapDraftSave();
     });
 
+    window.addEventListener('pagehide', saveMapDraft);
+    window.addEventListener('beforeunload', saveMapDraft);
+
     function init() {
-      state.layers = [{
-        id: 1,
-        name: 'Layer 1',
-        visible: true,
-        tiles: createEmptyTiles(state.mapWidth, state.mapHeight, 'void'),
-        textItems: [],
-        assetItems: createEmptyAssetItems()
-      }];
-      state.activeLayerId = 1;
+      const hasDraft = loadMapDraft();
+      if (!hasDraft) {
+        state.layers = [{
+          id: 1,
+          name: 'Layer 1',
+          visible: true,
+          tiles: createEmptyTiles(state.mapWidth, state.mapHeight, 'void'),
+          textItems: [],
+          assetItems: createEmptyAssetItems()
+        }];
+        state.activeLayerId = 1;
+      }
       loadAssetLibrary();
+      const toggleGridBtn = document.getElementById('toggleGridBtn');
+      toggleGridBtn.classList.toggle('active', state.showGrid);
+      toggleGridBtn.textContent = state.showGrid ? 'Grid an' : 'Grid aus';
+      syncMapInputs();
       renderToolButtons();
       renderTileButtons();
       renderAssetLibrary();
       renderLayerList();
       resizeCanvas();
       drawMap();
-      updateStatus();
+      updateStatus(hasDraft ? 'Letzten Map-Entwurf wiederhergestellt' : '');
+      if (!hasDraft) saveMapDraft();
     }
 
     init();

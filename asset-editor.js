@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'dnd-map-editor-assets';
+const ASSET_DRAFT_STORAGE_KEY = 'dnd-map-editor-asset-draft';
 
 const TOOL_DEFS = [
   { id: 'paint', label: 'Pinsel' },
@@ -142,6 +143,8 @@ const state = {
   assets: []
 };
 
+let draftSaveTimer = null;
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -252,6 +255,74 @@ function clonePixelsSnapshot() {
   return state.pixels.map(row => [...row]);
 }
 
+function buildAssetDraftPayload() {
+  return {
+    version: 1,
+    width: state.width,
+    height: state.height,
+    zoom: state.zoom,
+    showGrid: state.showGrid,
+    currentTool: state.currentTool,
+    currentColor: state.currentColor,
+    currentTileId: state.currentTileId,
+    customColor: state.customColor,
+    openTileCategories: Array.from(state.openTileCategories),
+    assetId: state.assetId,
+    name: assetNameInput.value,
+    category: assetCategoryInput.value,
+    pixels: clonePixelsSnapshot()
+  };
+}
+
+function saveAssetDraft() {
+  try {
+    localStorage.setItem(ASSET_DRAFT_STORAGE_KEY, JSON.stringify(buildAssetDraftPayload()));
+  } catch {
+    // Ignore storage failures so editing can continue.
+  }
+}
+
+function scheduleAssetDraftSave() {
+  window.clearTimeout(draftSaveTimer);
+  draftSaveTimer = window.setTimeout(() => {
+    draftSaveTimer = null;
+    saveAssetDraft();
+  }, 120);
+}
+
+function loadAssetDraft() {
+  try {
+    const raw = localStorage.getItem(ASSET_DRAFT_STORAGE_KEY);
+    if (!raw) return false;
+
+    const draft = JSON.parse(raw);
+    if (!draft || !Array.isArray(draft.pixels)) return false;
+
+    state.width = clamp(parseInt(draft.width, 10) || state.width, 1, 30);
+    state.height = clamp(parseInt(draft.height, 10) || state.height, 1, 30);
+    state.zoom = clamp(Number(draft.zoom) || 1, 0.5, 4);
+    state.showGrid = draft.showGrid !== false;
+    state.currentTool = TOOL_DEFS.some(tool => tool.id === draft.currentTool) ? draft.currentTool : state.currentTool;
+    state.currentColor = typeof draft.currentColor === 'string' ? draft.currentColor : state.currentColor;
+    state.currentTileId = typeof draft.currentTileId === 'string' ? draft.currentTileId : null;
+    state.customColor = typeof draft.customColor === 'string' ? draft.customColor : state.customColor;
+    state.openTileCategories = new Set(
+      Array.isArray(draft.openTileCategories) && draft.openTileCategories.length
+        ? draft.openTileCategories
+        : ['basic']
+    );
+    state.assetId = typeof draft.assetId === 'string' ? draft.assetId : null;
+    state.pixels = Array.from({ length: state.height }, (_, y) =>
+      Array.from({ length: state.width }, (_, x) => draft.pixels[y]?.[x] || null)
+    );
+    assetNameInput.value = typeof draft.name === 'string' ? draft.name : 'Tree Small';
+    assetCategoryInput.value = typeof draft.category === 'string' ? draft.category : 'Nature';
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function applyAssetResize(newWidth, newHeight, options = {}) {
   const nextWidth = clamp(parseInt(newWidth, 10) || state.width, 1, 30);
   const nextHeight = clamp(parseInt(newHeight, 10) || state.height, 1, 30);
@@ -272,6 +343,7 @@ function applyAssetResize(newWidth, newHeight, options = {}) {
   drawEditor();
   drawPreview();
   setStatus(options.statusMessage || `Raster angepasst: <strong>${state.width}x${state.height}</strong>`);
+  scheduleAssetDraftSave();
 }
 
 function drawEditor(preview = null) {
@@ -370,6 +442,7 @@ function renderPalette() {
         { renderPalette: true }
       );
       setStatus(`Farbe ausgewählt: <strong>${color === '#00000000' ? 'Transparent' : color}</strong>`);
+      scheduleAssetDraftSave();
     });
     paletteButtons.appendChild(btn);
   });
@@ -383,6 +456,7 @@ function applyRgbInputs() {
   );
   setCurrentColor(nextColor);
   updateStatus(`Farbe: <strong>${nextColor}</strong>`);
+  scheduleAssetDraftSave();
 }
 
 function renderAssetTiles() {
@@ -398,6 +472,7 @@ function renderAssetTiles() {
     wrapper.addEventListener('toggle', () => {
       if (wrapper.open) state.openTileCategories.add(category.id);
       else state.openTileCategories.delete(category.id);
+      scheduleAssetDraftSave();
     });
 
     const summary = document.createElement('summary');
@@ -420,6 +495,7 @@ function renderAssetTiles() {
           keepTileSelection: true,
           statusMessage: `Tile ausgewaehlt: <strong>${tile.label}</strong>`
         });
+        scheduleAssetDraftSave();
       });
       grid.appendChild(btn);
     });
@@ -441,6 +517,7 @@ function renderTools() {
       state.currentTool = tool.id;
       renderTools();
       setStatus(`Tool: <strong>${tool.label}</strong>`);
+      scheduleAssetDraftSave();
     });
     assetToolButtons.appendChild(btn);
   });
@@ -562,6 +639,7 @@ function saveCurrentAsset() {
   saveAssets();
   renderAssetList();
   setStatus(`Asset gespeichert: <strong>${asset.name}</strong>`);
+  scheduleAssetDraftSave();
 }
 
 function loadAsset(assetId) {
@@ -580,6 +658,7 @@ function loadAsset(assetId) {
   drawPreview();
   renderAssetList();
   setStatus(`Asset geladen: <strong>${asset.name}</strong>`);
+  scheduleAssetDraftSave();
 }
 
 function deleteAsset(assetId) {
@@ -588,6 +667,7 @@ function deleteAsset(assetId) {
   saveAssets();
   renderAssetList();
   setStatus('Asset gelöscht');
+  scheduleAssetDraftSave();
 }
 
 function applyGridSize() {
@@ -619,6 +699,7 @@ function fitAssetToContent() {
     drawEditor();
     drawPreview();
     setStatus('Asset enthält keine Pixel und wurde auf 1x1 zurückgesetzt');
+    scheduleAssetDraftSave();
     return;
   }
 
@@ -640,6 +721,7 @@ function fitAssetToContent() {
   drawEditor();
   drawPreview();
   setStatus(`Inhalt angepasst: <strong>${state.width}x${state.height}</strong>`);
+  scheduleAssetDraftSave();
 }
 
 function resetEditor() {
@@ -655,6 +737,7 @@ function resetEditor() {
   drawPreview();
   renderAssetList();
   setStatus('Neues leeres Asset erstellt');
+  scheduleAssetDraftSave();
 }
 
 function getCellFromEvent(evt) {
@@ -789,6 +872,7 @@ function applyToolAt(x, y) {
 
   drawEditor();
   drawPreview();
+  scheduleAssetDraftSave();
 }
 
 function updateMoveDrag(x, y) {
@@ -802,6 +886,7 @@ function updateMoveDrag(x, y) {
   drawEditor();
   drawPreview();
   updateStatus(`Verschiebung: <strong>${offsetX}, ${offsetY}</strong>`);
+  scheduleAssetDraftSave();
 }
 
 function importAssetFile(file) {
@@ -911,6 +996,7 @@ window.addEventListener('mouseup', () => {
     applyShape(state.dragStart.x, state.dragStart.y, state.hoverCell.x, state.hoverCell.y, state.currentTool);
     drawEditor();
     drawPreview();
+    scheduleAssetDraftSave();
   }
   state.isDrawing = false;
   state.dragStart = null;
@@ -931,9 +1017,12 @@ document.getElementById('newAssetBtn').addEventListener('click', resetEditor);
 document.getElementById('saveAssetBtn').addEventListener('click', saveCurrentAsset);
 document.getElementById('exportAssetBtn').addEventListener('click', () => exportAsset());
 assetImportInput.addEventListener('change', event => importAssetFile(event.target.files[0]));
+assetNameInput.addEventListener('input', scheduleAssetDraftSave);
+assetCategoryInput.addEventListener('input', scheduleAssetDraftSave);
 rgbColorInput.addEventListener('input', () => {
   setCurrentColor(rgbColorInput.value);
   setStatus(`Farbe: <strong>${rgbColorInput.value}</strong>`);
+  scheduleAssetDraftSave();
 });
 rgbRInput.addEventListener('input', applyRgbInputs);
 rgbGInput.addEventListener('input', applyRgbInputs);
@@ -944,21 +1033,25 @@ document.getElementById('toggleAssetGridBtn').addEventListener('click', (event) 
   event.target.textContent = state.showGrid ? 'Grid an' : 'Grid aus';
   drawEditor();
   updateStatus();
+  scheduleAssetDraftSave();
 });
 document.getElementById('assetZoomInBtn').addEventListener('click', () => {
   state.zoom = clamp(Number((state.zoom + 0.25).toFixed(2)), 0.5, 4);
   resizeEditorCanvas();
   updateStatus();
+  scheduleAssetDraftSave();
 });
 document.getElementById('assetZoomOutBtn').addEventListener('click', () => {
   state.zoom = clamp(Number((state.zoom - 0.25).toFixed(2)), 0.5, 4);
   resizeEditorCanvas();
   updateStatus();
+  scheduleAssetDraftSave();
 });
 document.getElementById('assetZoomResetBtn').addEventListener('click', () => {
   state.zoom = 1;
   resizeEditorCanvas();
   updateStatus();
+  scheduleAssetDraftSave();
 });
 
 [assetResizeHandleRight, assetResizeHandleBottom, assetResizeHandleCorner].forEach(handle => {
@@ -986,12 +1079,22 @@ window.addEventListener('keydown', (event) => {
   resizeEditorCanvas();
   drawEditor();
   updateStatus();
+  scheduleAssetDraftSave();
 });
+
+window.addEventListener('pagehide', saveAssetDraft);
+window.addEventListener('beforeunload', saveAssetDraft);
 
 function init() {
   loadAssetsFromStorage();
-  state.pixels = createEmptyPixels(state.width, state.height);
+  const hasDraft = loadAssetDraft();
+  if (!hasDraft) {
+    state.pixels = createEmptyPixels(state.width, state.height);
+  }
   syncInputs();
+  const toggleAssetGridBtn = document.getElementById('toggleAssetGridBtn');
+  toggleAssetGridBtn.classList.toggle('active', state.showGrid);
+  toggleAssetGridBtn.textContent = state.showGrid ? 'Grid an' : 'Grid aus';
   renderPalette();
   renderAssetTiles();
   syncColorInputs();
@@ -1000,7 +1103,8 @@ function init() {
   resizeEditorCanvas();
   drawEditor();
   drawPreview();
-  updateStatus('Rasterbasierter Asset-Editor bereit');
+  updateStatus(hasDraft ? 'Letzten Asset-Entwurf wiederhergestellt' : 'Rasterbasierter Asset-Editor bereit');
+  if (!hasDraft) saveAssetDraft();
 }
 
 init();

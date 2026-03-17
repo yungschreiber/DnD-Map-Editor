@@ -1,5 +1,6 @@
 const STORAGE_KEY = 'dnd-map-editor-assets';
 const ASSET_DRAFT_STORAGE_KEY = 'dnd-map-editor-asset-draft';
+const REPO_ASSET_MANIFEST_PATH = 'assets/index.json';
 
 const TOOL_DEFS = [
   { id: 'paint', label: 'Pinsel' },
@@ -139,6 +140,7 @@ const state = {
   resizeDrag: null,
   openTileCategories: new Set(['basic']),
   assetId: null,
+  assetFileName: null,
   pixels: [],
   assets: []
 };
@@ -170,11 +172,22 @@ function normalizeColor(color) {
   return color === '#00000000' ? null : color;
 }
 
+function sanitizeAssetFileName(value, fallbackBase = 'asset') {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .pop()
+    .replace(/\.json$/i, '');
+  return `${slugify(normalized || fallbackBase)}.json`;
+}
+
 function sanitizeAssetDefinition(asset) {
   if (!asset || !Array.isArray(asset.pixels)) return null;
   const width = clamp(parseInt(asset.width, 10) || 0, 1, 30);
   const height = clamp(parseInt(asset.height, 10) || 0, 1, 30);
   if (!width || !height) return null;
+  const fallbackBase = asset.name || asset.id || 'asset';
 
   const pixels = Array.from({ length: height }, (_, y) =>
     Array.from({ length: width }, (_, x) => asset.pixels[y]?.[x] || null)
@@ -182,9 +195,11 @@ function sanitizeAssetDefinition(asset) {
 
   return {
     ...asset,
+    id: typeof asset.id === 'string' && asset.id.trim() ? asset.id.trim() : `${slugify(asset.name || 'asset')}-${Date.now()}`,
     width,
     height,
-    pixels
+    pixels,
+    fileName: sanitizeAssetFileName(asset.fileName, asset.name || asset.id || fallbackBase)
   };
 }
 
@@ -268,6 +283,7 @@ function buildAssetDraftPayload() {
     customColor: state.customColor,
     openTileCategories: Array.from(state.openTileCategories),
     assetId: state.assetId,
+    assetFileName: state.assetFileName,
     name: assetNameInput.value,
     category: assetCategoryInput.value,
     pixels: clonePixelsSnapshot()
@@ -312,6 +328,7 @@ function loadAssetDraft() {
         : ['basic']
     );
     state.assetId = typeof draft.assetId === 'string' ? draft.assetId : null;
+    state.assetFileName = typeof draft.assetFileName === 'string' ? sanitizeAssetFileName(draft.assetFileName) : null;
     state.pixels = Array.from({ length: state.height }, (_, y) =>
       Array.from({ length: state.width }, (_, x) => draft.pixels[y]?.[x] || null)
     );
@@ -584,28 +601,32 @@ function renderAssetList() {
 }
 
 function saveAssets() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.assets));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.assets.map(toSerializableAsset)));
 }
 
 function loadAssetsFromStorage() {
   try {
-    state.assets = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
       .map(sanitizeAssetDefinition)
       .filter(Boolean);
   } catch {
-    state.assets = [];
+    return [];
   }
+}
+
+function downloadJson(filename, payload) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function exportAsset(asset = null) {
   const target = asset || buildCurrentAsset();
-  const blob = new Blob([JSON.stringify(target, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `${slugify(target.name || 'asset')}.json`;
-  link.click();
-  URL.revokeObjectURL(url);
+  downloadJson(getAssetFileName(target), toSerializableAsset(target));
   setStatus(`Asset exportiert: <strong>${target.name}</strong>`);
 }
 
@@ -617,15 +638,176 @@ function slugify(value) {
     .replace(/^-+|-+$/g, '') || 'asset';
 }
 
-function buildCurrentAsset() {
+function getAssetFileName(asset) {
+  return sanitizeAssetFileName(asset?.fileName, asset?.name || asset?.id || 'asset');
+}
+
+function toSerializableAsset(asset) {
   return {
-    id: state.assetId || `${slugify(assetNameInput.value)}-${Date.now()}`,
-    name: assetNameInput.value.trim() || 'Unnamed Asset',
+    id: asset.id,
+    name: asset.name,
+    category: asset.category,
+    width: asset.width,
+    height: asset.height,
+    pixels: asset.pixels.map(row => [...row]),
+    updatedAt: asset.updatedAt || new Date().toISOString(),
+    fileName: getAssetFileName(asset)
+  };
+}
+
+function ensureUniqueAssetFileName(fileName, assetId) {
+  const normalized = sanitizeAssetFileName(fileName);
+  const baseName = normalized.replace(/\.json$/i, '');
+  let candidate = normalized;
+  let suffix = 2;
+
+  while (state.assets.some(asset => asset.id !== assetId && getAssetFileName(asset) === candidate)) {
+    candidate = `${baseName}-${suffix}.json`;
+    suffix += 1;
+  }
+
+  return candidate;
+}
+
+function getRepoManifestPayload() {
+  return {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    assets: state.assets.map(asset => ({
+      id: asset.id,
+      name: asset.name,
+      category: asset.category,
+      updatedAt: asset.updatedAt || null,
+      path: `assets/${getAssetFileName(asset)}`
+    }))
+  };
+}
+
+async function loadAssetsFromRepo() {
+  if (!window.isSecureContext || window.location.protocol === 'file:') return [];
+
+  try {
+    const manifestResponse = await fetch(`${REPO_ASSET_MANIFEST_PATH}?t=${Date.now()}`, { cache: 'no-store' });
+    if (!manifestResponse.ok) return [];
+
+    const manifest = await manifestResponse.json();
+    const entries = Array.isArray(manifest?.assets) ? manifest.assets : [];
+    const repoAssets = await Promise.all(entries.map(async entry => {
+      const assetPath = typeof entry === 'string' ? entry : entry?.path;
+      if (typeof assetPath !== 'string' || !assetPath.trim()) return null;
+
+      try {
+        const response = await fetch(`${assetPath}?t=${Date.now()}`, { cache: 'no-store' });
+        if (!response.ok) return null;
+        const asset = sanitizeAssetDefinition(await response.json());
+        if (!asset) return null;
+        return {
+          ...asset,
+          fileName: sanitizeAssetFileName(entry?.fileName || asset.fileName || assetPath, asset.name || asset.id || 'asset')
+        };
+      } catch {
+        return null;
+      }
+    }));
+
+    return repoAssets.filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function mergeAssets(repoAssets, localAssets) {
+  const assetMap = new Map();
+
+  [...repoAssets, ...localAssets].forEach(asset => {
+    const current = assetMap.get(asset.id);
+    if (!current) {
+      assetMap.set(asset.id, asset);
+      return;
+    }
+
+    const currentTime = Date.parse(current.updatedAt || 0) || 0;
+    const nextTime = Date.parse(asset.updatedAt || 0) || 0;
+    assetMap.set(asset.id, nextTime >= currentTime ? asset : current);
+  });
+
+  return Array.from(assetMap.values())
+    .map(sanitizeAssetDefinition)
+    .filter(Boolean)
+    .sort((a, b) => (Date.parse(b.updatedAt || 0) || 0) - (Date.parse(a.updatedAt || 0) || 0));
+}
+
+async function refreshAssetLibrary(options = {}) {
+  const repoAssets = await loadAssetsFromRepo();
+  const localAssets = loadAssetsFromStorage();
+  state.assets = mergeAssets(repoAssets, localAssets);
+
+  if (options.persist !== false) saveAssets();
+  renderAssetList();
+  return repoAssets.length;
+}
+
+async function exportRepoFiles() {
+  if (!state.assets.length) {
+    setStatus('Keine Assets zum Repo-Export vorhanden');
+    return;
+  }
+
+  const manifest = getRepoManifestPayload();
+
+  if (window.showDirectoryPicker && window.isSecureContext) {
+    try {
+      const rootHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      const assetDirHandle = rootHandle.name === 'assets'
+        ? rootHandle
+        : await rootHandle.getDirectoryHandle('assets', { create: true });
+
+      for (const asset of state.assets) {
+        const fileHandle = await assetDirHandle.getFileHandle(getAssetFileName(asset), { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(JSON.stringify(toSerializableAsset(asset), null, 2));
+        await writable.close();
+      }
+
+      const manifestHandle = await assetDirHandle.getFileHandle('index.json', { create: true });
+      const manifestWritable = await manifestHandle.createWritable();
+      await manifestWritable.write(JSON.stringify(manifest, null, 2));
+      await manifestWritable.close();
+
+      setStatus('Repo-Dateien in den gewählten assets-Ordner geschrieben');
+      return;
+    } catch (error) {
+      if (error?.name !== 'AbortError') {
+        setStatus('Direktes Schreiben nicht möglich, wechsle zu Download-Dateien');
+      } else {
+        setStatus('Repo-Export abgebrochen');
+        return;
+      }
+    }
+  }
+
+  state.assets.forEach(asset => downloadJson(getAssetFileName(asset), toSerializableAsset(asset)));
+  downloadJson('index.json', manifest);
+  setStatus('Repo-Dateien als Downloads exportiert');
+}
+
+function buildCurrentAsset() {
+  const name = assetNameInput.value.trim() || 'Unnamed Asset';
+  const id = state.assetId || `${slugify(name)}-${Date.now()}`;
+  const fileName = ensureUniqueAssetFileName(
+    state.assetFileName || `${slugify(name)}.json`,
+    id
+  );
+
+  return {
+    id,
+    name,
     category: assetCategoryInput.value.trim() || 'Misc',
     width: state.width,
     height: state.height,
     pixels: state.pixels.map(row => [...row]),
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    fileName
   };
 }
 
@@ -636,6 +818,7 @@ function saveCurrentAsset() {
   else state.assets.splice(existingIndex, 1, asset);
 
   state.assetId = asset.id;
+  state.assetFileName = asset.fileName;
   saveAssets();
   renderAssetList();
   setStatus(`Asset gespeichert: <strong>${asset.name}</strong>`);
@@ -647,6 +830,7 @@ function loadAsset(assetId) {
   if (!asset) return;
 
   state.assetId = asset.id;
+  state.assetFileName = getAssetFileName(asset);
   state.width = asset.width;
   state.height = asset.height;
   state.pixels = asset.pixels.map(row => [...row]);
@@ -663,7 +847,10 @@ function loadAsset(assetId) {
 
 function deleteAsset(assetId) {
   state.assets = state.assets.filter(asset => asset.id !== assetId);
-  if (state.assetId === assetId) state.assetId = null;
+  if (state.assetId === assetId) {
+    state.assetId = null;
+    state.assetFileName = null;
+  }
   saveAssets();
   renderAssetList();
   setStatus('Asset gelöscht');
@@ -726,6 +913,7 @@ function fitAssetToContent() {
 
 function resetEditor() {
   state.assetId = null;
+  state.assetFileName = null;
   state.width = 20;
   state.height = 20;
   state.pixels = createEmptyPixels(state.width, state.height);
@@ -906,7 +1094,8 @@ function importAssetFile(file) {
         width: clamp(asset.width, 1, 30),
         height: clamp(asset.height, 1, 30),
         pixels: asset.pixels.map(row => row.map(cell => cell || null)),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        fileName: sanitizeAssetFileName(asset.fileName, asset.name || asset.id || 'asset')
       };
 
       const existingIndex = state.assets.findIndex(entry => entry.id === imported.id);
@@ -1016,6 +1205,9 @@ document.getElementById('fitAssetBtn').addEventListener('click', fitAssetToConte
 document.getElementById('newAssetBtn').addEventListener('click', resetEditor);
 document.getElementById('saveAssetBtn').addEventListener('click', saveCurrentAsset);
 document.getElementById('exportAssetBtn').addEventListener('click', () => exportAsset());
+document.getElementById('exportRepoBtn').addEventListener('click', () => {
+  void exportRepoFiles();
+});
 assetImportInput.addEventListener('change', event => importAssetFile(event.target.files[0]));
 assetNameInput.addEventListener('input', scheduleAssetDraftSave);
 assetCategoryInput.addEventListener('input', scheduleAssetDraftSave);
@@ -1085,8 +1277,8 @@ window.addEventListener('keydown', (event) => {
 window.addEventListener('pagehide', saveAssetDraft);
 window.addEventListener('beforeunload', saveAssetDraft);
 
-function init() {
-  loadAssetsFromStorage();
+async function init() {
+  const repoAssetCount = await refreshAssetLibrary({ persist: true });
   const hasDraft = loadAssetDraft();
   if (!hasDraft) {
     state.pixels = createEmptyPixels(state.width, state.height);
@@ -1103,8 +1295,10 @@ function init() {
   resizeEditorCanvas();
   drawEditor();
   drawPreview();
-  updateStatus(hasDraft ? 'Letzten Asset-Entwurf wiederhergestellt' : 'Rasterbasierter Asset-Editor bereit');
+  if (hasDraft) updateStatus('Letzten Asset-Entwurf wiederhergestellt');
+  else if (repoAssetCount) updateStatus(`Repo-Bibliothek geladen: <strong>${repoAssetCount}</strong> Assets`);
+  else updateStatus('Rasterbasierter Asset-Editor bereit');
   if (!hasDraft) saveAssetDraft();
 }
 
-init();
+void init();

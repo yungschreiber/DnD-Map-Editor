@@ -16,6 +16,7 @@
 
     const ASSET_STORAGE_KEY = 'dnd-map-editor-assets';
     const MAP_DRAFT_STORAGE_KEY = 'dnd-map-editor-map-draft';
+    const REPO_ASSET_MANIFEST_PATH = 'assets/index.json';
 
     const TILE_CATEGORIES = [
       {
@@ -193,6 +194,65 @@
         height,
         pixels
       };
+    }
+
+    function loadLocalAssetLibrary() {
+      try {
+        return JSON.parse(localStorage.getItem(ASSET_STORAGE_KEY) || '[]')
+          .map(sanitizeAssetDefinition)
+          .filter(Boolean);
+      } catch {
+        return [];
+      }
+    }
+
+    async function loadRepoAssetLibrary() {
+      if (!window.isSecureContext || window.location.protocol === 'file:') return [];
+
+      try {
+        const manifestResponse = await fetch(`${REPO_ASSET_MANIFEST_PATH}?t=${Date.now()}`, { cache: 'no-store' });
+        if (!manifestResponse.ok) return [];
+
+        const manifest = await manifestResponse.json();
+        const entries = Array.isArray(manifest?.assets) ? manifest.assets : [];
+        const repoAssets = await Promise.all(entries.map(async entry => {
+          const assetPath = typeof entry === 'string' ? entry : entry?.path;
+          if (typeof assetPath !== 'string' || !assetPath.trim()) return null;
+
+          try {
+            const response = await fetch(`${assetPath}?t=${Date.now()}`, { cache: 'no-store' });
+            if (!response.ok) return null;
+            return sanitizeAssetDefinition(await response.json());
+          } catch {
+            return null;
+          }
+        }));
+
+        return repoAssets.filter(Boolean);
+      } catch {
+        return [];
+      }
+    }
+
+    function mergeAssetLibraries(repoAssets, localAssets) {
+      const assetMap = new Map();
+
+      [...repoAssets, ...localAssets].forEach(asset => {
+        const current = assetMap.get(asset.id);
+        if (!current) {
+          assetMap.set(asset.id, asset);
+          return;
+        }
+
+        const currentTime = Date.parse(current.updatedAt || 0) || 0;
+        const nextTime = Date.parse(asset.updatedAt || 0) || 0;
+        assetMap.set(asset.id, nextTime >= currentTime ? asset : current);
+      });
+
+      return Array.from(assetMap.values())
+        .map(sanitizeAssetDefinition)
+        .filter(Boolean)
+        .sort((a, b) => (Date.parse(b.updatedAt || 0) || 0) - (Date.parse(a.updatedAt || 0) || 0));
     }
 
     function normalizeRotation(rotation) {
@@ -835,20 +895,18 @@
       });
     }
 
-    function loadAssetLibrary() {
-      try {
-        state.assetLibrary = JSON.parse(localStorage.getItem(ASSET_STORAGE_KEY) || '[]')
-          .map(sanitizeAssetDefinition)
-          .filter(Boolean);
-      } catch {
-        state.assetLibrary = [];
-      }
+    async function loadAssetLibrary() {
+      const repoAssets = await loadRepoAssetLibrary();
+      const localAssets = loadLocalAssetLibrary();
+      state.assetLibrary = mergeAssetLibraries(repoAssets, localAssets);
 
       if (state.selectedAssetId && !state.assetLibrary.some(asset => asset.id === state.selectedAssetId)) {
         state.selectedAssetId = null;
         state.selectedAssetRotation = 0;
         scheduleMapDraftSave();
       }
+
+      return repoAssets.length;
     }
 
     function createAssetPreview(asset, previewSize = 120) {
@@ -1510,16 +1568,18 @@
     });
 
     window.addEventListener('focus', () => {
-      loadAssetLibrary();
-      renderAssetLibrary();
-      updateStatus();
+      void loadAssetLibrary().then(() => {
+        renderAssetLibrary();
+        updateStatus();
+      });
     });
 
     window.addEventListener('storage', (event) => {
       if (event.key !== ASSET_STORAGE_KEY) return;
-      loadAssetLibrary();
-      renderAssetLibrary();
-      updateStatus('Asset-Bibliothek aktualisiert');
+      void loadAssetLibrary().then(() => {
+        renderAssetLibrary();
+        updateStatus('Asset-Bibliothek aktualisiert');
+      });
     });
 
     [resizeHandleRight, resizeHandleBottom, resizeHandleCorner].forEach(handle => {
@@ -1533,10 +1593,13 @@
     document.getElementById('redoBtn').addEventListener('click', redo);
     document.getElementById('newMapBtn').addEventListener('click', resetMap);
     document.getElementById('refreshAssetsBtn').addEventListener('click', () => {
-      loadAssetLibrary();
-      renderAssetLibrary();
-      updateStatus('Asset-Bibliothek aktualisiert');
-      scheduleMapDraftSave();
+      void loadAssetLibrary().then(repoAssetCount => {
+        renderAssetLibrary();
+        updateStatus(repoAssetCount
+          ? `Asset-Bibliothek aktualisiert: <strong>${repoAssetCount}</strong> Repo-Assets`
+          : 'Asset-Bibliothek aktualisiert');
+        scheduleMapDraftSave();
+      });
     });
     document.getElementById('resizeMapBtn').addEventListener('click', resizeMapPreserve);
     document.getElementById('saveJsonBtn').addEventListener('click', saveJson);
@@ -1637,7 +1700,7 @@
     window.addEventListener('pagehide', saveMapDraft);
     window.addEventListener('beforeunload', saveMapDraft);
 
-    function init() {
+    async function init() {
       const hasDraft = loadMapDraft();
       if (!hasDraft) {
         state.layers = [{
@@ -1650,7 +1713,7 @@
         }];
         state.activeLayerId = 1;
       }
-      loadAssetLibrary();
+      const repoAssetCount = await loadAssetLibrary();
       const toggleGridBtn = document.getElementById('toggleGridBtn');
       toggleGridBtn.classList.toggle('active', state.showGrid);
       toggleGridBtn.textContent = state.showGrid ? 'Grid an' : 'Grid aus';
@@ -1661,8 +1724,10 @@
       renderLayerList();
       resizeCanvas();
       drawMap();
-      updateStatus(hasDraft ? 'Letzten Map-Entwurf wiederhergestellt' : '');
+      if (hasDraft) updateStatus('Letzten Map-Entwurf wiederhergestellt');
+      else if (repoAssetCount) updateStatus(`Repo-Assets geladen: <strong>${repoAssetCount}</strong>`);
+      else updateStatus();
       if (!hasDraft) saveMapDraft();
     }
 
-    init();
+    void init();

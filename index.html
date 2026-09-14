@@ -17,7 +17,7 @@
         <button id="undoBtn" data-icon="↶">Rückgängig</button>
         <button id="redoBtn" data-icon="↷">Wiederholen</button>
         <button id="newMapBtn" data-icon="+">Neue Map</button>
-        <button class="primary-button" id="saveJsonBtn" data-icon="↓">JSON speichern</button>
+        <button class="primary-button" id="saveJsonBtn" data-icon="↓">Projekt speichern</button>
         <button id="exportPngBtn" data-icon="⇱">PNG exportieren</button>
         <button id="toggleGridBtn" class="active" data-icon="□">Grid an</button>
       </div>
@@ -27,6 +27,24 @@
       <section class="section">
         <h2 class="panel-title">Werkzeuge</h2>
         <div class="tool-grid" id="toolButtons"></div>
+      </section>
+
+      <section class="section" id="roomOptions" hidden>
+        <h2 class="panel-title">Raum bauen</h2>
+        <div class="field"><label for="roomFloor">Boden</label><select id="roomFloor"></select></div>
+        <div class="field"><label for="roomWall">Wände</label><select id="roomWall"></select></div>
+        <p class="hint">Ziehe ein Rechteck ab 3 × 3 Zellen. Boden und Außenwände entstehen auf dem aktiven Layer.</p>
+      </section>
+
+      <section class="section" id="objectOptions" hidden>
+        <h2 class="panel-title">Objekt bearbeiten</h2>
+        <p class="hint" id="objectName">Klicke ein platziertes Asset an.</p>
+        <div class="group">
+          <button id="rotateObjectBtn" type="button" data-icon="↻" disabled>Drehen</button>
+          <button id="duplicateObjectBtn" type="button" data-icon="+" disabled>Duplizieren</button>
+          <button id="deleteObjectBtn" type="button" class="danger" disabled>Löschen</button>
+        </div>
+        <p class="hint">Ziehen verschiebt die Auswahl. Q / E dreht, Strg + D dupliziert, Entf löscht.</p>
       </section>
 
       <section class="section">
@@ -51,7 +69,7 @@
       <section class="section">
         <h2 class="panel-title">Import</h2>
         <div class="field">
-          <label for="jsonFileInput">JSON laden</label>
+          <label for="jsonFileInput">Projekt oder ältere Map laden</label>
           <input id="jsonFileInput" type="file" accept="application/json" />
         </div>
       </section>
@@ -64,7 +82,10 @@
           <div><span class="kbd">4</span> Rechteck</div>
           <div><span class="kbd">5</span> Kreis</div>
           <div><span class="kbd">6</span> Text</div>
-          <div><span class="kbd">7</span> Move</div>
+          <div><span class="kbd">7</span> Layer bewegen</div>
+          <div><span class="kbd">8</span> Objektauswahl</div>
+          <div><span class="kbd">9</span> Raum</div>
+          <div><span class="kbd">Strg + S</span> Projekt speichern</div>
           <div><span class="kbd">Q</span> / <span class="kbd">E</span> Asset drehen</div>
           <div><span class="kbd">G</span> Grid</div>
           <div><span class="kbd">+</span> / <span class="kbd">-</span> Zoom</div>
@@ -139,8 +160,19 @@
       </section>
     </aside>
   </div>
+  <dialog id="exportDialog" aria-labelledby="exportTitle">
+    <h2 id="exportTitle">PNG für deine Spielrunde</h2>
+    <p class="hint">Exportiert alle sichtbaren Layer ohne Auswahlrahmen. Die Ansicht im Editor bleibt erhalten.</p>
+    <div class="field"><label for="exportCellSize">Pixel pro Feld</label><input id="exportCellSize" type="number" min="12" max="128" value="24" /></div>
+    <label class="check-field"><input id="exportGrid" type="checkbox" /> Raster exportieren</label>
+    <label class="check-field"><input id="exportTransparent" type="checkbox" checked /> Leere Flächen transparent</label>
+    <p class="hint" id="exportError" role="status"></p><div class="group dialog-actions"><button id="cancelExportBtn" type="button">Abbrechen</button><button class="primary-button" id="confirmExportBtn" type="button">PNG herunterladen</button></div>
+  </dialog>
+  <div class="editor-notice" id="editorNotice" role="status" hidden></div>
   <script src="ui.js"></script>
   <script src="shared-tiles.js"></script>
+  <script src="starter-assets.js"></script>
+  <script src="map-tools.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

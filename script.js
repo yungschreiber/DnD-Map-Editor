@@ -88,7 +88,9 @@
       { id: 'rect', label: 'Rechteck' },
       { id: 'circle', label: 'Kreis' },
       { id: 'text', label: 'Text' },
-      { id: 'move', label: 'Move' }
+      { id: 'move', label: 'Layer bewegen' },
+      { id: 'select', label: 'Auswahl' },
+      { id: 'room', label: 'Raum' }
     ];
 
     const BUTTON_ICONS = {
@@ -100,6 +102,7 @@
       text: 'T',
       move: '✥',
       select: '◇',
+      room: '▣',
       rename: '✎',
       visible: '◉',
       hidden: '◎',
@@ -153,7 +156,12 @@
       draggedLayerId: null,
       dropTargetLayerId: null,
       openTileCategories: new Set(['basic']),
-      resizeDrag: null
+      resizeDrag: null,
+      projectTiles: [],
+      selectedObject: null,
+      objectDrag: null,
+      roomFloor: 'stone-floor',
+      roomWall: 'brick-wall'
     };
 
     let draftSaveTimer = null;
@@ -401,7 +409,16 @@
       window.DND_TILE_SHARED.TILE_MAP_WITH_VOID.forEach((tile, id) => {
         TILE_MAP.set(id, { ...tile });
       });
+      const projectIds = new Set(state.projectTiles.map(tile => tile.id));
+      if (projectIds.size) {
+        TILE_CATEGORIES.forEach(category => { category.tiles = category.tiles.filter(tile => !projectIds.has(tile.id)); });
+        const tiles = state.projectTiles.map(tile => ({ ...tile, categoryId: 'project', categoryLabel: 'Projekt' }));
+        TILE_CATEGORIES.push({ id: 'project', label: 'PROJEKT', tiles });
+        tiles.forEach(tile => TILE_MAP.set(tile.id, tile));
+      }
+      TILE_TYPES.splice(0, TILE_TYPES.length, ...TILE_MAP.values());
       if (!TILE_MAP.has(state.selectedTile)) state.selectedTile = 'stone';
+      renderRoomOptions();
       renderTileButtons();
       drawMap();
     }
@@ -424,12 +441,12 @@
       const selectedAsset = getSelectedAsset();
       statusBox.innerHTML = `
         Tool: <strong>${TOOLS.find(t => t.id === state.selectedTool)?.label}</strong><br>
-        Tile: <strong>${tile.label}</strong><br>
-        Kategorie: <strong>${tile.categoryLabel}</strong><br>
-        Asset: <strong>${selectedAsset ? selectedAsset.name : '-'}</strong><br>
+        Tile: <strong>${window.DND_TILE_SHARED.escapeHtml(tile.label)}</strong><br>
+        Kategorie: <strong>${window.DND_TILE_SHARED.escapeHtml(tile.categoryLabel)}</strong><br>
+        Asset: <strong>${window.DND_TILE_SHARED.escapeHtml(selectedAsset ? selectedAsset.name : '-')}</strong><br>
         Platzierung: <strong>${selectedAsset && state.selectedTool === 'paint' ? 'Asset-Stempel' : 'Tile'}</strong><br>
         Rotation: <strong>${selectedAsset ? state.selectedAssetRotation * 90 : 0}°</strong><br>
-        Layer: <strong>${activeLayer?.name || '-'}</strong><br>
+        Layer: <strong>${window.DND_TILE_SHARED.escapeHtml(activeLayer?.name || '-')}</strong><br>
         Größe: <strong>${state.mapWidth} × ${state.mapHeight}</strong><br>
         Tile Size: <strong>${state.tileSize}px</strong><br>
         Zoom: <strong>${Math.round(state.zoom * 100)}%</strong><br>
@@ -882,7 +899,7 @@
       };
     }
 
-    function drawMap(preview = null) {
+    function drawMap(preview = null, options = {}) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       [...state.layers].reverse().forEach(layer => {
         drawLayerTiles(layer);
@@ -905,12 +922,25 @@
         drawAssetPixels(rotatedAsset, anchor.x, anchor.y, { alpha: 0.7, showOutline: true });
       }
 
+      if (preview?.tool === 'room') {
+        ctx.save();
+        ctx.globalAlpha = 0.65;
+        window.DND_MAP_TOOLS.room(preview.start.x, preview.start.y, preview.end.x, preview.end.y,
+          state.roomFloor, state.roomWall, (x, y, tile) => {
+            ctx.fillStyle = getTileDef(tile).color;
+            ctx.fillRect(x * state.tileSize, y * state.tileSize, state.tileSize, state.tileSize);
+          });
+        ctx.restore();
+      }
       drawTextItems();
       drawGrid();
+      if (options.selection !== false) drawObjectSelection();
+      syncObjectControls();
     }
 
     function cloneStateSnapshot() {
       return {
+        projectTiles: state.projectTiles.map(tile => ({ ...tile })),
         mapWidth: state.mapWidth,
         mapHeight: state.mapHeight,
         tileSize: state.tileSize,
@@ -936,6 +966,7 @@
 
     function buildMapDraftPayload() {
       return {
+        projectTiles: state.projectTiles,
         version: 1,
         mapWidth: state.mapWidth,
         mapHeight: state.mapHeight,
@@ -957,7 +988,7 @@
       try {
         localStorage.setItem(MAP_DRAFT_STORAGE_KEY, JSON.stringify(buildMapDraftPayload()));
       } catch {
-        // Ignore storage failures so editing can continue.
+        showNotice('Entwurf konnte nicht gesichert werden. Bitte Projektdatei herunterladen.', true);
       }
     }
 
@@ -993,6 +1024,7 @@
             : ['basic']
         );
         Object.assign(state, imported);
+        refreshSharedTiles();
         state.history = [];
         state.redoStack = [];
         return true;
@@ -1035,6 +1067,7 @@
     }
 
     function applyMapResize(newWidth, newHeight, newTileSize = state.tileSize, options = {}) {
+      state.selectedObject = null;
       const width = clamp(newWidth, 4, 200);
       const height = clamp(newHeight, 4, 200);
       const tileSize = clamp(newTileSize, 12, 64);
@@ -1072,6 +1105,9 @@
     }
 
     function restoreSnapshot(snapshot) {
+      state.projectTiles = snapshot.projectTiles || [];
+      state.selectedObject = null;
+      state.objectDrag = null;
       state.mapWidth = snapshot.mapWidth;
       state.mapHeight = snapshot.mapHeight;
       state.tileSize = snapshot.tileSize;
@@ -1093,6 +1129,7 @@
         }))
       }));
       syncMapInputs();
+      refreshSharedTiles();
       resizeCanvas();
       renderLayerList();
       drawMap();
@@ -1129,7 +1166,7 @@
 
         const summary = document.createElement('summary');
         summary.className = 'tile-category-summary';
-        summary.innerHTML = `<span>${category.label}</span><span class="tile-category-count">${category.tiles.length}</span>`;
+        summary.innerHTML = `<span>${window.DND_TILE_SHARED.escapeHtml(category.label)}</span><span class="tile-category-count">${category.tiles.length}</span>`;
         wrapper.appendChild(summary);
 
         const grid = document.createElement('div');
@@ -1163,6 +1200,9 @@
     }
 
     function renderToolButtons() {
+      document.getElementById('roomOptions').hidden = state.selectedTool !== 'room';
+      document.getElementById('objectOptions').hidden = state.selectedTool !== 'select';
+      syncObjectControls();
       toolButtons.innerHTML = '';
       TOOLS.forEach(tool => {
         const btn = document.createElement('button');
@@ -1183,7 +1223,7 @@
     async function loadAssetLibrary() {
       const repoAssets = await loadRepoAssetLibrary();
       const localAssets = loadLocalAssetLibrary();
-      state.assetLibrary = mergeAssetLibraries(repoAssets, localAssets);
+      state.assetLibrary = mergeAssetLibraries([...window.DND_STARTER_ASSETS, ...repoAssets], localAssets);
 
       if (state.selectedAssetId && !state.assetLibrary.some(asset => asset.id === state.selectedAssetId)) {
         state.selectedAssetId = null;
@@ -1241,7 +1281,7 @@
           renderAssetLibrary();
           renderToolButtons();
           drawMap();
-          updateStatus(`Asset ausgewählt: <strong>${asset.name}</strong>`);
+          updateStatus(`Asset ausgewählt: <strong>${window.DND_TILE_SHARED.escapeHtml(asset.name)}</strong>`);
           scheduleMapDraftSave();
         });
 
@@ -1254,7 +1294,7 @@
         title.textContent = asset.name;
         const info = document.createElement('div');
         info.className = 'asset-card-meta';
-        info.innerHTML = `${asset.category || 'Misc'}<br>${asset.width}x${asset.height} Zellen`;
+        info.innerHTML = `${window.DND_TILE_SHARED.escapeHtml(asset.category || 'Misc')}<br>${asset.width}x${asset.height} Zellen`;
         meta.appendChild(title);
         meta.appendChild(info);
         head.appendChild(meta);
@@ -1274,7 +1314,7 @@
           state.selectedAssetId = asset.id;
           state.selectedAssetRotation = 0;
           renderAssetLibrary();
-          updateStatus(`Asset ausgewählt: <strong>${asset.name}</strong>`);
+          updateStatus(`Asset ausgewählt: <strong>${window.DND_TILE_SHARED.escapeHtml(asset.name)}</strong>`);
           scheduleMapDraftSave();
         });
 
@@ -1487,6 +1527,89 @@
       layer.tiles[y][x] = tileId;
     }
 
+    function renderRoomOptions() {
+      for (const key of ['roomFloor', 'roomWall']) {
+        const select = document.getElementById(key);
+        select.replaceChildren();
+        for (const tile of TILE_MAP.values()) {
+          if (tile.id === 'void') continue;
+          const option = document.createElement('option');
+          option.value = tile.id;
+          option.textContent = tile.label;
+          select.append(option);
+        }
+        if (!TILE_MAP.has(state[key])) state[key] = 'stone';
+        select.value = state[key];
+      }
+    }
+
+    function selectedPlacedObject() {
+      const selection = state.selectedObject;
+      if (!selection) return null;
+      const layer = state.layers.find(entry => entry.id === selection.layerId && entry.visible);
+      const item = layer?.assetItems?.[selection.index];
+      return item ? { layer, item, index: selection.index } : null;
+    }
+
+    function syncObjectControls() {
+      const selection = selectedPlacedObject();
+      document.getElementById('objectName').textContent = selection
+        ? selection.item.asset.name : 'Klicke ein platziertes Asset an.';
+      for (const id of ['rotateObjectBtn', 'duplicateObjectBtn', 'deleteObjectBtn']) {
+        document.getElementById(id).disabled = !selection;
+      }
+    }
+
+    function drawObjectSelection() {
+      const selected = selectedPlacedObject();
+      if (!selected || state.selectedTool !== 'select') return;
+      const { item } = selected;
+      ctx.save();
+      ctx.strokeStyle = '#c7e99b';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 3]);
+      ctx.strokeRect(item.x * state.tileSize + 1, item.y * state.tileSize + 1,
+        item.asset.width * state.tileSize - 2, item.asset.height * state.tileSize - 2);
+      ctx.restore();
+    }
+
+    function editSelectedObject(action, rotation = 1) {
+      const selected = selectedPlacedObject();
+      if (!selected) return;
+      pushHistory();
+      const { item, layer, index } = selected;
+      if (action === 'rotate') {
+        item.asset = rotateAsset(item.asset, rotation);
+        item.x = clamp(item.x, 1 - item.asset.width, state.mapWidth - 1);
+        item.y = clamp(item.y, 1 - item.asset.height, state.mapHeight - 1);
+      }
+      if (action === 'duplicate') {
+        layer.assetItems.push({ x: Math.min(item.x + 1, state.mapWidth - 1),
+          y: Math.min(item.y + 1, state.mapHeight - 1), asset: rotateAsset(item.asset, 0) });
+        state.selectedObject = { layerId: layer.id, index: layer.assetItems.length - 1 };
+      }
+      if (action === 'delete') {
+        layer.assetItems.splice(index, 1);
+        state.selectedObject = null;
+      }
+      drawMap();
+      scheduleMapDraftSave();
+    }
+
+    function updateObjectDrag(x, y) {
+      const drag = state.objectDrag;
+      const selected = selectedPlacedObject();
+      if (!drag || !selected) return;
+      const nextX = clamp(drag.originX + x - drag.startX, 1 - selected.item.asset.width, state.mapWidth - 1);
+      const nextY = clamp(drag.originY + y - drag.startY, 1 - selected.item.asset.height, state.mapHeight - 1);
+      if (nextX === selected.item.x && nextY === selected.item.y) return;
+      if (!drag.changed) { pushHistory(); drag.changed = true; }
+      selected.item.x = nextX;
+      selected.item.y = nextY;
+      drawMap();
+      scheduleMapDraftSave();
+    }
+
     function placeAsset(x, y, asset) {
       const layer = getEditableActiveLayer();
       if (!layer || !asset) return;
@@ -1546,6 +1669,9 @@
     }
 
     function applyShape(startX, startY, endX, endY, shape) {
+      if (shape === 'room') {
+        return window.DND_MAP_TOOLS.room(startX, startY, endX, endY, state.roomFloor, state.roomWall, setTile);
+      }
       applyShapeToGrid(startX, startY, endX, endY, shape, (x, y) => setTile(x, y, state.selectedTile));
     }
 
@@ -1622,6 +1748,8 @@
 
     function resetMap() {
       pushHistory();
+      state.projectTiles = [];
+      state.selectedObject = null;
       state.layers = [{
         id: 1,
         name: 'Layer 1',
@@ -1632,6 +1760,7 @@
       }];
       state.activeLayerId = 1;
       state.nextLayerId = 2;
+      refreshSharedTiles();
       resizeCanvas();
       renderLayerList();
       drawMap();
@@ -1647,43 +1776,105 @@
       scheduleMapDraftSave();
     }
 
-    function saveJson() {
-      const payload = {
-        version: 3,
-        mapWidth: state.mapWidth,
-        mapHeight: state.mapHeight,
-        tileSize: state.tileSize,
-        activeLayerId: state.activeLayerId,
-        nextLayerId: state.nextLayerId,
-        layers: state.layers
-      };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'dnd-map.json';
-      a.click();
-      URL.revokeObjectURL(url);
+    function showNotice(message, error = false) {
+      const notice = document.getElementById('editorNotice');
+      notice.textContent = message;
+      notice.hidden = false;
+      notice.classList.toggle('error', error);
     }
 
-    function exportPng() {
-      // Export the committed map without a stamp or shape preview.
-      drawMap();
-      canvas.toBlob(blob => {
-        if (!blob) {
-          updateStatus('PNG konnte nicht erstellt werden');
-          return;
-        }
+    async function portableTile(tile) {
+      const result = { id: tile.id, label: tile.label, color: tile.color };
+      const source = tile.textureDataUrl || tile.texturePath;
+      if (!source) return result;
+      if (/^data:image\/(png|webp);base64,/i.test(source)) {
+        result.textureDataUrl = source;
+        return result;
+      }
+      const image = getTileTextureImage(tile);
+      await image.decode();
+      const texture = document.createElement('canvas');
+      texture.width = Math.min(image.naturalWidth, 256);
+      texture.height = Math.min(image.naturalHeight, 256);
+      texture.getContext('2d').drawImage(image, 0, 0, texture.width, texture.height);
+      result.textureDataUrl = texture.toDataURL('image/png');
+      return result;
+    }
+
+    async function buildProjectPayload() {
+      const snapshot = cloneStateSnapshot();
+      const used = new Set(snapshot.layers.flatMap(layer => layer.tiles.flat()).filter(id => id !== 'void'));
+      const definitions = Array.from(used, id => {
+        const tile = TILE_MAP.get(id);
+        if (!tile) throw new Error(`Tile fehlt: ${id}`);
+        return { ...tile };
+      });
+      const projectTiles = await Promise.all(definitions.map(portableTile));
+      return { ...snapshot, format: 'dnd-studio-project', version: 4, projectTiles };
+    }
+
+    async function saveJson() {
+      const button = document.getElementById('saveJsonBtn');
+      button.disabled = true;
+      try {
+        const payload = await buildProjectPayload();
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'dnd-map.png';
-        a.click();
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'dnd-projekt.json';
+        link.click();
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      }, 'image/png');
+        showNotice('Projektdatei erstellt – Map, platzierte Assets und verwendete Tiles enthalten.');
+      } catch (error) {
+        showNotice('Projekt konnte nicht exportiert werden: ' + error.message, true);
+      } finally {
+        button.disabled = false;
+      }
     }
-
+    function exportPng(options = {}) {
+      const size = Number(options.tileSize ?? state.tileSize);
+      const width = state.mapWidth * size, height = state.mapHeight * size;
+      if (!Number.isInteger(size) || size < 12 || size > 128 || width > 8192 || height > 8192 || width * height > 32000000) {
+        showNotice('Export zu groß. Wähle weniger Pixel pro Feld (max. 8192 px pro Seite und 32 Megapixel).', true);
+        return false;
+      }
+      const output = document.createElement('canvas');
+      output.width = width;
+      output.height = height;
+      const outputCtx = output.getContext('2d');
+      const showGrid = state.showGrid;
+      try {
+        state.showGrid = options.grid ?? false;
+        drawMap(null, { selection: false });
+        if (options.transparent === false) {
+          outputCtx.fillStyle = '#101410';
+          outputCtx.fillRect(0, 0, width, height);
+        }
+        outputCtx.imageSmoothingEnabled = false;
+        outputCtx.drawImage(canvas, 0, 0, width, height);
+        output.toBlob(blob => {
+          if (!blob) { showNotice('PNG konnte nicht erstellt werden.', true); return; }
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `dnd-map-${size}px.png`;
+          link.click();
+          window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+          showNotice(`PNG erstellt: ${width} × ${height} Pixel, ${size} Pixel pro Feld.`);
+        }, 'image/png');
+        return true;
+      } catch (error) {
+        showNotice('PNG konnte nicht exportiert werden: ' + error.message, true);
+        return false;
+      } finally {
+        state.showGrid = showGrid;
+        drawMap();
+      }
+    }
     function parseMapImport(data) {
+      if (data?.version > 4) throw new Error('Diese Projektversion wird noch nicht unterstützt');
+      const projectTiles = window.DND_MAP_TOOLS.validateProjectTiles(data?.projectTiles);
       const integerInRange = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
       if (!data || !integerInRange(data.mapWidth, 4, 200) || !integerInRange(data.mapHeight, 4, 200)
         || !integerInRange(data.tileSize ?? 24, 12, 64)) {
@@ -1728,6 +1919,7 @@
       });
       const minimumNextId = layers.reduce((next, layer) => Math.max(next, layer.id + 1), 2);
       return {
+        projectTiles,
         mapWidth: data.mapWidth,
         mapHeight: data.mapHeight,
         tileSize: data.tileSize ?? 24,
@@ -1740,12 +1932,16 @@
 
     function loadJsonFile(file) {
       if (!file) return;
+      if (file.size > 40 * 1024 * 1024) { showNotice('Projektdatei ist zu groß (maximal 40 MB).', true); return; }
       const reader = new FileReader();
       reader.onload = () => {
         try {
           const imported = parseMapImport(JSON.parse(reader.result));
           pushHistory();
           Object.assign(state, imported);
+          state.selectedObject = null;
+          state.objectDrag = null;
+          refreshSharedTiles();
           state.isDrawing = false;
           state.dragStart = null;
           state.moveDrag = null;
@@ -1756,7 +1952,8 @@
           resizeCanvas();
           renderLayerList();
           drawMap();
-          updateStatus('JSON geladen');
+          updateStatus('Projekt geladen');
+          showNotice('Projekt geladen. Mit Rückgängig kannst du zur vorherigen Map zurückkehren.');
           scheduleMapDraftSave();
         } catch (err) {
           alert('Datei konnte nicht geladen werden: ' + err.message);
@@ -1824,8 +2021,18 @@
     }
 
     canvas.addEventListener('mousedown', (evt) => {
+      if (evt.button !== undefined && evt.button !== 0) return;
       const { x, y } = getGridPos(evt);
       state.hoverCell = { x, y };
+      if (state.selectedTool === 'select') {
+        state.selectedObject = window.DND_MAP_TOOLS.hitAsset(state.layers, x, y);
+        const selected = selectedPlacedObject();
+        state.objectDrag = selected ? { startX: x, startY: y, originX: selected.item.x, originY: selected.item.y, changed: false } : null;
+        if (selected) { state.activeLayerId = selected.layer.id; renderLayerList(); }
+        drawMap();
+        return;
+      }
+      state.selectedObject = null;
       const editableLayer = getEditableActiveLayer();
 
       if (!editableLayer) {
@@ -1852,7 +2059,7 @@
         return;
       }
 
-      if (state.selectedTool === 'rect' || state.selectedTool === 'circle') {
+      if (['rect', 'circle', 'room'].includes(state.selectedTool)) {
         state.isDrawing = true;
         state.dragStart = { x, y };
         drawMap({ tool: state.selectedTool, start: state.dragStart, end: { x, y } });
@@ -1868,6 +2075,7 @@
     canvas.addEventListener('mousemove', (evt) => {
       if (state.resizeDrag) return;
       const { x, y } = getGridPos(evt);
+      const previousCell = state.hoverCell;
       if (state.hoverCell?.x === x && state.hoverCell?.y === y) return;
       state.hoverCell = { x, y };
       const editableLayer = getEditableActiveLayer();
@@ -1881,8 +2089,13 @@
       if (state.isDrawing && state.selectedTool === 'move' && state.moveDrag) {
         updateMoveDrag(x, y);
       } else if (state.isDrawing && (state.selectedTool === 'paint' || state.selectedTool === 'erase')) {
-        applyTool(x, y);
-      } else if (state.isDrawing && (state.selectedTool === 'rect' || state.selectedTool === 'circle') && state.dragStart) {
+        window.DND_MAP_TOOLS.line(previousCell?.x ?? x, previousCell?.y ?? y, x, y, (cellX, cellY) => {
+          if (state.selectedTool === 'erase') eraseAt(cellX, cellY);
+          else setTile(cellX, cellY, state.selectedTile);
+        });
+        drawMap();
+        scheduleMapDraftSave();
+      } else if (state.isDrawing && (['rect', 'circle', 'room'].includes(state.selectedTool)) && state.dragStart) {
         drawMap({ tool: state.selectedTool, start: state.dragStart, end: { x, y } });
         updateStatus(`Cursor: <strong>${x}, ${y}</strong>`);
       } else if (state.selectedTool === 'paint' && getSelectedAsset()) {
@@ -1900,6 +2113,7 @@
     });
 
     window.addEventListener('mouseup', () => {
+      if (state.objectDrag) { state.objectDrag = null; return; }
       if (state.resizeDrag) {
         endResizeDrag();
         return;
@@ -1911,7 +2125,14 @@
         state.dragStart = null;
         return;
       }
-      if (state.isDrawing && state.dragStart && state.hoverCell && (state.selectedTool === 'rect' || state.selectedTool === 'circle')) {
+      if (state.isDrawing && state.dragStart && state.hoverCell && (['rect', 'circle', 'room'].includes(state.selectedTool))) {
+        if (state.selectedTool === 'room' && (Math.abs(state.dragStart.x - state.hoverCell.x) < 2 || Math.abs(state.dragStart.y - state.hoverCell.y) < 2)) {
+          state.isDrawing = false;
+          state.dragStart = null;
+          drawMap();
+          showNotice('Ein Raum benötigt mindestens 3 × 3 Zellen.', true);
+          return;
+        }
         pushHistory();
         applyShape(state.dragStart.x, state.dragStart.y, state.hoverCell.x, state.hoverCell.y, state.selectedTool);
         drawMap();
@@ -1922,6 +2143,11 @@
     });
 
     window.addEventListener('mousemove', (evt) => {
+      if (state.objectDrag) {
+        const { x, y } = getGridPos(evt);
+        updateObjectDrag(x, y);
+        return;
+      }
       if (state.isDrawing && state.selectedTool === 'move' && state.moveDrag) {
         const rect = canvas.getBoundingClientRect();
         const x = Math.floor((evt.clientX - rect.left) / (state.tileSize * state.zoom));
@@ -1960,6 +2186,12 @@
       });
     });
 
+    document.getElementById('rotateObjectBtn').addEventListener('click', () => editSelectedObject('rotate'));
+    document.getElementById('duplicateObjectBtn').addEventListener('click', () => editSelectedObject('duplicate'));
+    document.getElementById('deleteObjectBtn').addEventListener('click', () => editSelectedObject('delete'));
+    for (const key of ['roomFloor', 'roomWall']) {
+      document.getElementById(key).addEventListener('change', event => { state[key] = event.target.value; });
+    }
     document.getElementById('addLayerBtn').addEventListener('click', addLayer);
     document.getElementById('undoBtn').addEventListener('click', undo);
     document.getElementById('redoBtn').addEventListener('click', redo);
@@ -1975,7 +2207,28 @@
     });
     document.getElementById('resizeMapBtn').addEventListener('click', resizeMapPreserve);
     document.getElementById('saveJsonBtn').addEventListener('click', saveJson);
-    document.getElementById('exportPngBtn').addEventListener('click', exportPng);
+    const exportDialog = document.getElementById('exportDialog');
+    document.getElementById('exportPngBtn').addEventListener('click', () => {
+      document.getElementById('exportCellSize').value = state.tileSize;
+      document.getElementById('exportError').textContent = '';
+      exportDialog.showModal();
+    });
+    document.getElementById('cancelExportBtn').addEventListener('click', () => exportDialog.close());
+    document.getElementById('confirmExportBtn').addEventListener('click', async () => {
+      const button = document.getElementById('confirmExportBtn');
+      button.disabled = true;
+      try {
+        await Promise.all(Array.from(new Set(state.layers.flatMap(layer => layer.tiles.flat())))
+          .filter(id => id !== 'void').map(id => getTileTextureImage(getTileDef(id)))
+          .filter(Boolean).map(image => image.decode()));
+        const success = exportPng({ tileSize: document.getElementById('exportCellSize').value,
+          grid: document.getElementById('exportGrid').checked,
+          transparent: document.getElementById('exportTransparent').checked });
+        if (success) exportDialog.close();
+        else document.getElementById('exportError').textContent = document.getElementById('editorNotice').textContent;
+      } catch { document.getElementById('exportError').textContent = 'Eine Tile-Textur konnte nicht geladen werden.'; }
+      finally { button.disabled = false; }
+    });
     document.getElementById('jsonFileInput').addEventListener('change', (e) => loadJsonFile(e.target.files[0]));
 
     assetLibraryList.addEventListener('click', (event) => {
@@ -1997,7 +2250,7 @@
       renderToolButtons();
       drawMap();
       updateStatus(state.selectedAssetId
-        ? `Asset ausgewaehlt: <strong>${asset.name}</strong>`
+        ? `Asset ausgewaehlt: <strong>${window.DND_TILE_SHARED.escapeHtml(asset.name)}</strong>`
         : 'Asset-Auswahl aufgehoben');
       scheduleMapDraftSave();
     }, true);
@@ -2034,6 +2287,21 @@
 
     window.addEventListener('keydown', (e) => {
       if (e.defaultPrevented || e.target.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault(); void saveJson(); return;
+      }
+      if (e.key === 'Escape') {
+        state.selectedObject = null; state.objectDrag = null;
+        state.isDrawing = false; state.dragStart = null; state.moveDrag = null;
+        drawMap(); return;
+      }
+      if (state.selectedTool === 'select' && selectedPlacedObject() && !e.altKey) {
+        if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); editSelectedObject('delete'); return; }
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); editSelectedObject('duplicate'); return; }
+        if (!e.ctrlKey && !e.metaKey && ['q', 'e'].includes(e.key.toLowerCase())) {
+          e.preventDefault(); editSelectedObject('rotate', e.key.toLowerCase() === 'q' ? -1 : 1); return;
+        }
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
         e.preventDefault();
         undo();
@@ -2044,7 +2312,7 @@
         redo();
         return;
       }
-      if (e.ctrlKey || e.metaKey || e.altKey || !['1', '2', '3', '4', '5', '6', '7', 'q', 'e', 'g', '+', '-'].includes(e.key.toLowerCase())) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || !['1', '2', '3', '4', '5', '6', '7', '8', '9', 'q', 'e', 'g', '+', '-'].includes(e.key.toLowerCase())) return;
       if (e.key === '1') state.selectedTool = 'paint';
       if (e.key === '2') state.selectedTool = 'erase';
       if (e.key === '3') state.selectedTool = 'fill';
@@ -2052,6 +2320,8 @@
       if (e.key === '5') state.selectedTool = 'circle';
       if (e.key === '6') state.selectedTool = 'text';
       if (e.key === '7') state.selectedTool = 'move';
+      if (e.key === '8') state.selectedTool = 'select';
+      if (e.key === '9') state.selectedTool = 'room';
       if (e.key.toLowerCase() === 'q' && getSelectedAsset() && state.selectedTool === 'paint') {
         state.selectedAssetRotation = normalizeRotation(state.selectedAssetRotation - 1);
       }
@@ -2088,6 +2358,7 @@
         state.activeLayerId = 1;
       }
       const repoAssetCount = await loadAssetLibrary();
+      refreshSharedTiles();
       const toggleGridBtn = document.getElementById('toggleGridBtn');
       toggleGridBtn.classList.toggle('active', state.showGrid);
       toggleGridBtn.textContent = state.showGrid ? 'Grid an' : 'Grid aus';

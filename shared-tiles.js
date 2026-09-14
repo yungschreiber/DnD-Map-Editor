@@ -22,6 +22,17 @@
 
   const BUILTIN_TILE_CATEGORIES = [
     {
+      id: 'studio', label: 'STUDIO',
+      tiles: [
+        { id: 'cobblestone', label: 'Pflaster', color: '#727871', texturePath: 'assets/tiles/cobblestone.svg' },
+        { id: 'moss-stone', label: 'Moosstein', color: '#61745a', texturePath: 'assets/tiles/moss-stone.svg' },
+        { id: 'dark-planks', label: 'Dunkle Dielen', color: '#70513d', texturePath: 'assets/tiles/dark-planks.svg' },
+        { id: 'marble', label: 'Marmor', color: '#b9beb2', texturePath: 'assets/tiles/marble.svg' },
+        { id: 'woven-carpet', label: 'Teppich', color: '#805359', texturePath: 'assets/tiles/woven-carpet.svg' },
+        { id: 'shallow-water', label: 'Flachwasser', color: '#597e88', texturePath: 'assets/tiles/shallow-water.svg' }
+      ]
+    },
+    {
       id: 'basic',
       label: 'BASIC',
       tiles: [
@@ -158,6 +169,11 @@
   const TILE_BY_COLOR = new Map();
 
   const shared = {
+    escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[character]);
+    },
     PALETTE,
     TILE_CATEGORIES,
     TILE_TYPES,

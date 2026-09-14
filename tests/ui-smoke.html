@@ -24,6 +24,61 @@
       check(doc.querySelector('.inspector'), page + ': inspector must initialize');
       check(doc.querySelector('.tool-grid button.active, .asset-tool-grid button.active'), page + ': editor must initialize');
       check(doc.querySelector('.workspace-tools button[aria-pressed]'), page + ': grid must expose toggle state');
+      if (page === 'index.html') {
+        win.resetMap();
+        const state = win.eval('state');
+        const canvas = doc.getElementById('mapCanvas');
+        const mouse = (type, x, y) => {
+          const bounds = canvas.getBoundingClientRect();
+          canvas.dispatchEvent(new win.MouseEvent(type, { bubbles: true, button: 0,
+            clientX: bounds.left + (x + 0.5) * state.tileSize * state.zoom,
+            clientY: bounds.top + (y + 0.5) * state.tileSize * state.zoom }));
+        };
+        const tool = name => Array.from(doc.querySelectorAll('#toolButtons button')).find(button => button.textContent === name).click();
+        tool('Raum');
+        const floor = doc.getElementById('roomFloor');
+        floor.value = 'moss-stone';
+        floor.dispatchEvent(new win.Event('change'));
+        mouse('mousedown', 3, 3); mouse('mousemove', 12, 12); mouse('mouseup', 12, 12);
+        check(state.layers[0].tiles[3][3] === 'brick-wall' && state.layers[0].tiles[5][5] === 'moss-stone', 'Room gesture must create walls and textured floors');
+        check(state.assetLibrary.length >= 12, 'Starter assets must be available without a server');
+        doc.querySelector('#assetLibraryList .asset-card-actions button').click();
+        mouse('mousedown', 6, 6); mouse('mouseup', 6, 6);
+        check(state.layers[0].assetItems.length === 1, 'Starter asset must place on map');
+        tool('Auswahl');
+        const item = state.layers[0].assetItems[0];
+        const startX = item.x, startY = item.y;
+        mouse('mousedown', startX, startY); mouse('mousemove', startX + 2, startY + 1); mouse('mouseup', startX + 2, startY + 1);
+        check(item.x === startX + 2 && item.y === startY + 1, 'Selection gesture must move the placed object');
+        doc.getElementById('duplicateObjectBtn').click();
+        check(state.layers[0].assetItems.length === 2, 'Duplicate action must work in browser');
+        win.undo();
+        check(state.layers[0].assetItems.length === 1, 'Duplicate must support undo in browser');
+        const payload = await win.buildProjectPayload();
+        check(payload.projectTiles.find(tile => tile.id === 'moss-stone').textureDataUrl.startsWith('data:image/png;base64,'), 'SVG materials must be embedded as portable PNG');
+        check(win.parseMapImport(payload).layers[0].assetItems.length === 1, 'Project must retain placed assets');
+        win.loadJsonFile(new win.File([JSON.stringify(payload)], 'round-trip.json', { type: 'application/json' }));
+        await new Promise(resolve => setTimeout(resolve, 200));
+        check(state.projectTiles.some(tile => tile.id === 'moss-stone' && tile.textureDataUrl), 'File import must restore embedded textures');
+        const toBlob = win.HTMLCanvasElement.prototype.toBlob;
+        let exportedCanvas;
+        win.HTMLCanvasElement.prototype.toBlob = function () { exportedCanvas = this; };
+        try {
+          check(win.exportPng({ tileSize: 32, transparent: true, grid: false }), 'PNG export must succeed');
+          check(exportedCanvas.width === state.mapWidth * 32 && exportedCanvas.height === state.mapHeight * 32, 'PNG dimensions must follow cell resolution');
+          check(exportedCanvas.getContext('2d').getImageData(0, 0, 1, 1).data[3] === 0, 'Empty exported cells must stay transparent');
+          check(exportedCanvas.toDataURL('image/png').startsWith('data:image/png;base64,'), 'Exported canvas must encode to PNG');
+        } finally {
+          win.HTMLCanvasElement.prototype.toBlob = toBlob;
+        }
+        results.push('PASS map workflows: room gesture, starter placement, object drag, duplication/undo, embedded textures, PNG dimensions/transparency');
+      }
+      if (page === 'asset-editor.html') {
+        const starter = doc.querySelector('#assetList .asset-card');
+        check(starter.querySelector('.danger').disabled, 'Starter originals must be protected');
+        starter.querySelector('button').click();
+        check(doc.getElementById('assetNameInput').value.endsWith(' Kopie'), 'Starter assets must load as editable copies');
+      }
       const ids = Array.from(doc.querySelectorAll('[id]'), node => node.id);
       check(new Set(ids).size === ids.length, page + ': duplicate IDs');
       const tabs = Array.from(doc.querySelectorAll('[role="tab"]'));

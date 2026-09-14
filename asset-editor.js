@@ -704,7 +704,7 @@ function renderAssetTiles() {
 
     const summary = document.createElement('summary');
     summary.className = 'tile-category-summary';
-    summary.innerHTML = `<span>${category.label}</span><span class="tile-category-count">${category.tiles.length}</span>`;
+    summary.innerHTML = `<span>${window.DND_TILE_SHARED.escapeHtml(category.label)}</span><span class="tile-category-count">${category.tiles.length}</span>`;
     wrapper.appendChild(summary);
 
     const grid = document.createElement('div');
@@ -723,7 +723,7 @@ function renderAssetTiles() {
         state.openTileCategories.add(category.id);
         setCurrentColor(tile.color, {
           keepTileSelection: true,
-          statusMessage: `Tile ausgewaehlt: <strong>${tile.label}</strong>`
+          statusMessage: `Tile ausgewaehlt: <strong>${window.DND_TILE_SHARED.escapeHtml(tile.label)}</strong>`
         });
         renderAssetTiles();
         scheduleAssetDraftSave();
@@ -777,7 +777,7 @@ function renderAssetList() {
     title.textContent = asset.name;
     const info = document.createElement('div');
     info.className = 'asset-card-meta';
-    info.innerHTML = `${asset.category}<br>${asset.width}x${asset.height} Zellen`;
+    info.innerHTML = `${window.DND_TILE_SHARED.escapeHtml(asset.category)}<br>${asset.width}x${asset.height} Zellen`;
     meta.appendChild(title);
     meta.appendChild(info);
 
@@ -790,7 +790,8 @@ function renderAssetList() {
     const loadBtn = document.createElement('button');
     loadBtn.type = 'button';
     loadBtn.dataset.icon = BUTTON_ICONS.load;
-    loadBtn.textContent = 'Laden';
+    const isStarter = window.DND_STARTER_ASSETS.some(entry => entry.id === asset.id);
+    loadBtn.textContent = isStarter ? 'Als Kopie laden' : 'Laden';
     loadBtn.addEventListener('click', () => loadAsset(asset.id));
 
     const exportBtn = document.createElement('button');
@@ -804,6 +805,8 @@ function renderAssetList() {
     deleteBtn.dataset.icon = BUTTON_ICONS.delete;
     deleteBtn.textContent = 'Löschen';
     deleteBtn.className = 'danger';
+    deleteBtn.disabled = isStarter;
+    if (isStarter) deleteBtn.title = 'Startassets bleiben als Vorlage erhalten';
     deleteBtn.addEventListener('click', () => deleteAsset(asset.id));
 
     actions.appendChild(loadBtn);
@@ -815,7 +818,8 @@ function renderAssetList() {
 }
 
 function saveAssets() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.assets.map(toSerializableAsset)));
+  const starterIds = new Set(window.DND_STARTER_ASSETS.map(asset => asset.id));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.assets.filter(asset => !starterIds.has(asset.id)).map(toSerializableAsset)));
 }
 
 function loadAssetsFromStorage() {
@@ -841,7 +845,7 @@ function downloadJson(filename, payload) {
 function exportAsset(asset = null) {
   const target = asset || buildCurrentAsset();
   downloadJson(getAssetFileName(target), toSerializableAsset(target));
-  setStatus(`Asset exportiert: <strong>${target.name}</strong>`);
+  setStatus(`Asset exportiert: <strong>${window.DND_TILE_SHARED.escapeHtml(target.name)}</strong>`);
 }
 
 function slugify(value) {
@@ -954,7 +958,7 @@ function mergeAssets(repoAssets, localAssets) {
 async function refreshAssetLibrary(options = {}) {
   const repoAssets = await loadAssetsFromRepo();
   const localAssets = loadAssetsFromStorage();
-  state.assets = mergeAssets(repoAssets, localAssets);
+  state.assets = mergeAssets([...window.DND_STARTER_ASSETS, ...repoAssets], localAssets);
 
   if (options.persist !== false) saveAssets();
   renderAssetList();
@@ -1035,7 +1039,7 @@ function saveCurrentAsset() {
   state.assetFileName = asset.fileName;
   saveAssets();
   renderAssetList();
-  setStatus(`Asset gespeichert: <strong>${asset.name}</strong>`);
+  setStatus(`Asset gespeichert: <strong>${window.DND_TILE_SHARED.escapeHtml(asset.name)}</strong>`);
   scheduleAssetDraftSave();
 }
 
@@ -1043,23 +1047,25 @@ function loadAsset(assetId) {
   const asset = state.assets.find(entry => entry.id === assetId);
   if (!asset) return;
 
-  state.assetId = asset.id;
-  state.assetFileName = getAssetFileName(asset);
+  const isStarter = window.DND_STARTER_ASSETS.some(entry => entry.id === asset.id);
+  state.assetId = isStarter ? null : asset.id;
+  state.assetFileName = isStarter ? null : getAssetFileName(asset);
   state.width = asset.width;
   state.height = asset.height;
   state.pixels = asset.pixels.map(row => [...row]);
-  assetNameInput.value = asset.name;
+  assetNameInput.value = isStarter ? `${asset.name} Kopie` : asset.name;
   assetCategoryInput.value = asset.category;
   syncInputs();
   resizeEditorCanvas();
   drawEditor();
   drawPreview();
   renderAssetList();
-  setStatus(`Asset geladen: <strong>${asset.name}</strong>`);
+  setStatus(`Asset geladen: <strong>${window.DND_TILE_SHARED.escapeHtml(asset.name)}</strong>`);
   scheduleAssetDraftSave();
 }
 
 function deleteAsset(assetId) {
+  if (window.DND_STARTER_ASSETS.some(asset => asset.id === assetId)) return;
   state.assets = state.assets.filter(asset => asset.id !== assetId);
   if (state.assetId === assetId) {
     state.assetId = null;
@@ -1319,7 +1325,7 @@ function importAssetFile(file) {
       saveAssets();
       renderAssetList();
       loadAsset(imported.id);
-      setStatus(`Asset importiert: <strong>${imported.name}</strong>`);
+      setStatus(`Asset importiert: <strong>${window.DND_TILE_SHARED.escapeHtml(imported.name)}</strong>`);
     } catch (error) {
       setStatus(`Import fehlgeschlagen: <strong>${error.message}</strong>`);
     }

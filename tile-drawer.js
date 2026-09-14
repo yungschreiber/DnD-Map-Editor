@@ -452,7 +452,7 @@ function saveTile() {
   state.tileId = tile.id;
   renderCategoryOptions();
   renderCustomTileList();
-  setStatus(`Tile gespeichert: <strong>${tile.label}</strong>`);
+  setStatus(`Tile gespeichert: <strong>${window.DND_TILE_SHARED.escapeHtml(tile.label)}</strong>`);
 }
 
 function applyPixel(x, y, color) {
@@ -529,7 +529,7 @@ function renderCustomTileList() {
     title.textContent = tile.label;
     const info = document.createElement('div');
     info.className = 'asset-card-meta';
-    info.innerHTML = `${category.label}<br>${tile.id}`;
+    info.innerHTML = `${window.DND_TILE_SHARED.escapeHtml(category.label)}<br>${window.DND_TILE_SHARED.escapeHtml(tile.id)}`;
     meta.appendChild(title);
     meta.appendChild(info);
     head.appendChild(meta);
@@ -612,7 +612,7 @@ async function loadCustomTile(category, tile) {
     drawCanvas();
     drawPreview();
     renderCustomTileList();
-    setStatus(`Tile geladen: <strong>${tile.label}</strong>`);
+    setStatus(`Tile geladen: <strong>${window.DND_TILE_SHARED.escapeHtml(tile.label)}</strong>`);
   } catch {
     setStatus('Tile konnte nicht geladen werden');
   }

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<title>UI smoke checks</title>
+<style>body { font: 14px system-ui; } iframe { height: 950px; border: 0; }</style>
+<h1>UI smoke checks</h1>
+<pre id="result">Running…</pre>
+<iframe id="editor" title="Editor under test"></iframe>
+<script>
+(async () => {
+  const result = document.getElementById('result');
+  const frame = document.getElementById('editor');
+  const results = [];
+  const check = (value, message) => { if (!value) throw new Error(message); };
+  try {
+    for (const page of ['index.html', 'asset-editor.html', 'tile-drawer.html']) {
+      frame.style.width = '1440px';
+      await new Promise(resolve => { frame.onload = resolve; frame.src = '../' + page; });
+      const doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      await doc.fonts.ready;
+      await new Promise(resolve => setTimeout(resolve, 300));
+      check(doc.fonts.check('13px "Violet Sans"'), page + ': font must load');
+      check(doc.querySelector('.inspector'), page + ': inspector must initialize');
+      check(doc.querySelector('.tool-grid button.active, .asset-tool-grid button.active'), page + ': editor must initialize');
+      check(doc.querySelector('.workspace-tools button[aria-pressed]'), page + ': grid must expose toggle state');
+      const ids = Array.from(doc.querySelectorAll('[id]'), node => node.id);
+      check(new Set(ids).size === ids.length, page + ': duplicate IDs');
+      const tabs = Array.from(doc.querySelectorAll('[role="tab"]'));
+      tabs.forEach(tab => {
+        tab.click();
+        check(tab.getAttribute('aria-selected') === 'true', page + ': tab selection');
+        check(!doc.getElementById(tab.getAttribute('aria-controls')).hidden, page + ': panel visibility');
+      });
+      tabs[0].focus();
+      tabs[0].dispatchEvent(new win.KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
+      check(doc.activeElement === tabs.at(-1), page + ': keyboard tab focus');
+      const search = doc.querySelector('.library-search');
+      const card = doc.createElement('div');
+      card.className = 'asset-card';
+      card.textContent = 'Testbaum';
+      doc.querySelector('.asset-list').append(card);
+      search.value = 'Stein';
+      search.dispatchEvent(new win.Event('input'));
+      check(card.hidden, page + ': search must hide nonmatching cards');
+      search.value = 'baum';
+      search.dispatchEvent(new win.Event('input'));
+      check(!card.hidden, page + ': search must match substrings');
+      card.remove();
+      for (const width of [1440, 900, 390]) {
+        frame.style.width = width + 'px';
+        await new Promise(resolve => setTimeout(resolve, 50));
+        check(doc.documentElement.scrollWidth <= width + 1, page + ': page overflow at ' + width);
+        const viewport = doc.querySelector('.canvas-viewport').getBoundingClientRect();
+        check(viewport.width > 100 && viewport.height > 100, page + ': usable canvas viewport at ' + width);
+      }
+      results.push('PASS ' + page + ': font, initialization, tabs, keyboard, search, 1440/900/390px');
+    }
+    result.textContent = results.join('\n');
+    document.title = 'PASS – UI smoke checks';
+  } catch (error) {
+    result.textContent = results.join('\n') + '\nFAIL: ' + error.message;
+    document.title = 'FAIL – UI smoke checks';
+  }
+})();
+</script>
+</html>

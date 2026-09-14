@@ -1467,7 +1467,8 @@ document.getElementById('assetZoomResetBtn').addEventListener('click', () => {
 });
 
 window.addEventListener('keydown', (event) => {
-  if (event.target.tagName === 'INPUT') return;
+  if (event.defaultPrevented || event.target.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target.tagName)) return;
+  if (event.ctrlKey || event.metaKey || event.altKey || !['1', '2', '3', '4', '5', '6', '7', 'g', '+', '-'].includes(event.key.toLowerCase())) return;
   if (event.key === '1') state.currentTool = 'paint';
   if (event.key === '2') state.currentTool = 'erase';
   if (event.key === '3') state.currentTool = 'fill';

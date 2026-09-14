@@ -4,22 +4,18 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Tile Drawer - DnD Map Editor</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="preload" href="assets/fonts/VioletSans-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <meta name="theme-color" content="#191c19" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="asset-page">
+  <a class="skip-link" href="#workspace">Zur Arbeitsfläche</a>
   <div class="asset-app">
     <header class="topbar">
-      <div class="group brand-group">
-        <div class="brand">Tile Drawer</div>
-        <a class="nav-link-button" href="index.html" data-icon="◇">Zur Map</a>
-        <a class="nav-link-button" href="asset-editor.html" data-icon="◇">Asset Editor</a>
-      </div>
-      <div class="group">
+      <div class="group brand-group"><a class="brand" href="index.html" aria-label="DnD Studio – Map-Editor"><span class="brand-mark" aria-hidden="true">◈</span> DnD<span class="brand-suffix">Studio</span></a><nav class="editor-nav" aria-label="Editor wählen"><a href="index.html">Map</a><a href="asset-editor.html">Assets</a><a href="tile-drawer.html" aria-current="page">Tiles</a></nav></div>
+      <div class="group document-actions" aria-label="Dateiaktionen">
         <button id="newTileBtn" type="button" data-icon="+">Neues Tile</button>
-        <button id="saveTileBtn" type="button" data-icon="↓">Tile speichern</button>
+        <button class="primary-button" id="saveTileBtn" type="button" data-icon="↓">Tile speichern</button>
         <button id="toggleTileGridBtn" class="active" type="button" data-icon="□">Grid an</button>
       </div>
     </header>
@@ -80,8 +76,7 @@
         </div>
       </section>
 
-      <section>
-        <h2 class="panel-title">Shortcuts</h2>
+      <details class="shortcuts"><summary>Tastenkürzel <span aria-hidden="true">⌘</span></summary>
         <div class="hint">
           <div><span class="kbd">1</span> Pinsel</div>
           <div><span class="kbd">2</span> Radierer</div>
@@ -92,13 +87,15 @@
           <div><span class="kbd">7</span> Move</div>
           <div><span class="kbd">G</span> Grid</div>
         </div>
-      </section>
+      </details>
     </aside>
 
-    <main class="asset-stage">
+    <main class="asset-stage" aria-label="Tiles-Arbeitsfläche">
+<div class="workspace-heading"><div><span class="eyebrow">TILE DRAWER</span><h1>Pixel für Pixel.</h1></div></div>
+<div class="canvas-viewport" id="workspace" tabindex="-1">
       <section class="asset-canvas-shell">
         <div class="asset-canvas-stage">
-          <canvas class="asset-canvas" id="tileDrawerCanvas" width="512" height="512"></canvas>
+          <canvas class="asset-canvas" id="tileDrawerCanvas" width="512" height="512" aria-label="Zeichenfläche">Dein Browser unterstützt die Zeichenfläche nicht.</canvas>
         </div>
       </section>
 
@@ -108,7 +105,7 @@
           <canvas id="tilePreviewCanvas" width="192" height="192"></canvas>
         </div>
       </section>
-    </main>
+    </div><div class="workspace-footer"><span class="live-dot" aria-hidden="true"></span> Deine Bausteine für die nächste Welt</div></main>
 
     <aside class="asset-tiles">
       <section class="section">
@@ -129,6 +126,7 @@
     </aside>
   </div>
 
+  <script src="ui.js"></script>
   <script src="shared-tiles.js"></script>
   <script src="tile-drawer.js"></script>
 </body>

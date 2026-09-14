@@ -98,7 +98,7 @@
       rect: '▭',
       circle: '◯',
       text: 'T',
-      move: 'âœ‹',
+      move: '✥',
       select: '◇',
       rename: '✎',
       visible: '◉',
@@ -407,8 +407,11 @@
     }
 
     function resizeCanvas() {
-      canvas.width = state.mapWidth * state.tileSize;
-      canvas.height = state.mapHeight * state.tileSize;
+      // Assigning canvas dimensions clears its contents, even when unchanged.
+      const width = state.mapWidth * state.tileSize;
+      const height = state.mapHeight * state.tileSize;
+      if (canvas.width !== width) canvas.width = width;
+      if (canvas.height !== height) canvas.height = height;
       canvas.style.width = `${canvas.width * state.zoom}px`;
       canvas.style.height = `${canvas.height * state.zoom}px`;
       mapStage.style.width = `${canvas.width * state.zoom + 18}px`;
@@ -946,7 +949,7 @@
         activeLayerId: state.activeLayerId,
         nextLayerId: state.nextLayerId,
         openTileCategories: Array.from(state.openTileCategories),
-        layers: cloneStateSnapshot().layers
+        layers: state.layers
       };
     }
 
@@ -972,6 +975,7 @@
         if (!raw) return false;
 
         const draft = JSON.parse(raw);
+        const imported = parseMapImport(draft);
         if (!draft || !Array.isArray(draft.layers) || !draft.layers.length) return false;
 
         state.mapWidth = clamp(parseInt(draft.mapWidth, 10) || state.mapWidth, 4, 200);
@@ -988,31 +992,7 @@
             ? draft.openTileCategories
             : ['basic']
         );
-        state.nextLayerId = Math.max(parseInt(draft.nextLayerId, 10) || 2, 2);
-        state.layers = buildResizedLayers(
-          draft.layers.map(layer => ({
-            id: layer.id,
-            name: layer.name || `Layer ${layer.id}`,
-            visible: layer.visible !== false,
-            tiles: Array.isArray(layer.tiles) ? layer.tiles : createEmptyTiles(state.mapWidth, state.mapHeight, 'void'),
-            textItems: Array.isArray(layer.textItems) ? layer.textItems : [],
-            assetItems: Array.isArray(layer.assetItems) ? layer.assetItems.map(item => ({
-              x: item.x,
-              y: item.y,
-              asset: {
-                ...item.asset,
-                pixels: Array.isArray(item.asset?.pixels) ? item.asset.pixels.map(row => [...row]) : []
-              }
-            })) : []
-          })),
-          parseInt(draft.mapWidth, 10) || state.mapWidth,
-          parseInt(draft.mapHeight, 10) || state.mapHeight,
-          state.mapWidth,
-          state.mapHeight
-        );
-        state.activeLayerId = state.layers.some(layer => layer.id === draft.activeLayerId)
-          ? draft.activeLayerId
-          : state.layers[0].id;
+        Object.assign(state, imported);
         state.history = [];
         state.redoStack = [];
         return true;
@@ -1613,6 +1593,7 @@
       else if (state.selectedTool === 'text') addTextItem(x, y);
       drawMap();
       updateStatus(`Cursor: <strong>${x}, ${y}</strong>`);
+      scheduleMapDraftSave();
     }
 
     function updateMoveDrag(x, y) {
@@ -1686,10 +1667,75 @@
     }
 
     function exportPng() {
-      const a = document.createElement('a');
-      a.href = canvas.toDataURL('image/png');
-      a.download = 'dnd-map.png';
-      a.click();
+      // Export the committed map without a stamp or shape preview.
+      drawMap();
+      canvas.toBlob(blob => {
+        if (!blob) {
+          updateStatus('PNG konnte nicht erstellt werden');
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'dnd-map.png';
+        a.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }, 'image/png');
+    }
+
+    function parseMapImport(data) {
+      const integerInRange = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
+      if (!data || !integerInRange(data.mapWidth, 4, 200) || !integerInRange(data.mapHeight, 4, 200)
+        || !integerInRange(data.tileSize ?? 24, 12, 64)) {
+        throw new Error('Ungültige Map-Größe (4–200 Zellen, Tile-Größe 12–64)');
+      }
+      const sourceLayers = Array.isArray(data.layers) ? data.layers : Array.isArray(data.tiles)
+        ? [{ id: 1, name: 'Layer 1', tiles: data.tiles, textItems: data.textItems }]
+        : [];
+      if (!sourceLayers.length) throw new Error('Die Map benötigt mindestens einen Layer');
+      const ids = new Set();
+      const layers = sourceLayers.map(layer => {
+        if (!layer || !Number.isSafeInteger(layer.id) || layer.id < 1 || layer.id >= Number.MAX_SAFE_INTEGER - 1 || ids.has(layer.id)) {
+          throw new Error('Ungültige oder doppelte Layer-ID');
+        }
+        ids.add(layer.id);
+        if (!Array.isArray(layer.tiles) || layer.tiles.length !== data.mapHeight
+          || layer.tiles.some(row => !Array.isArray(row) || row.length !== data.mapWidth
+            || row.some(tile => typeof tile !== 'string'))) {
+          throw new Error('Tile-Raster passt nicht zur Map-Größe');
+        }
+        const textItems = Array.isArray(layer.textItems) ? layer.textItems : [];
+        if (textItems.some(item => !item || typeof item.text !== 'string' || !Number.isFinite(item.x)
+          || !Number.isFinite(item.y) || !Number.isFinite(item.size) || item.size <= 0)) {
+          throw new Error('Ungültige Text-Daten');
+        }
+        const assetItems = Array.isArray(layer.assetItems) ? layer.assetItems : [];
+        if (assetItems.some(item => !item || !Number.isInteger(item.x) || !Number.isInteger(item.y)
+          || !item.asset || !integerInRange(item.asset.width, 1, 64) || !integerInRange(item.asset.height, 1, 64)
+          || !Array.isArray(item.asset.pixels) || item.asset.pixels.length !== item.asset.height
+          || item.asset.pixels.some(row => !Array.isArray(row) || row.length !== item.asset.width
+            || row.some(pixel => pixel !== null && typeof pixel !== 'string')))) {
+          throw new Error('Ungültige Asset-Daten');
+        }
+        return {
+          id: layer.id,
+          name: typeof layer.name === 'string' && layer.name ? layer.name : `Layer ${layer.id}`,
+          visible: layer.visible !== false,
+          tiles: layer.tiles,
+          textItems,
+          assetItems
+        };
+      });
+      const minimumNextId = layers.reduce((next, layer) => Math.max(next, layer.id + 1), 2);
+      return {
+        mapWidth: data.mapWidth,
+        mapHeight: data.mapHeight,
+        tileSize: data.tileSize ?? 24,
+        layers,
+        activeLayerId: ids.has(data.activeLayerId) ? data.activeLayerId : layers[0].id,
+        nextLayerId: Number.isSafeInteger(data.nextLayerId) && data.nextLayerId >= minimumNextId
+          && data.nextLayerId < Number.MAX_SAFE_INTEGER ? data.nextLayerId : minimumNextId
+      };
     }
 
     function loadJsonFile(file) {
@@ -1697,46 +1743,13 @@
       const reader = new FileReader();
       reader.onload = () => {
         try {
-          const data = JSON.parse(reader.result);
-          if (Array.isArray(data.layers)) {
-            state.mapWidth = data.mapWidth;
-            state.mapHeight = data.mapHeight;
-            state.tileSize = data.tileSize || 24;
-            state.activeLayerId = data.activeLayerId || data.layers[0]?.id || 1;
-            state.nextLayerId = data.nextLayerId || (Math.max(...data.layers.map(l => l.id), 1) + 1);
-            state.layers = data.layers.map(layer => ({
-              id: layer.id,
-              name: layer.name || `Layer ${layer.id}`,
-              visible: layer.visible !== false,
-              tiles: layer.tiles,
-              textItems: Array.isArray(layer.textItems) ? layer.textItems : [],
-              assetItems: Array.isArray(layer.assetItems) ? layer.assetItems.map(item => ({
-                x: item.x,
-                y: item.y,
-                asset: {
-                  ...item.asset,
-                  pixels: Array.isArray(item.asset?.pixels) ? item.asset.pixels.map(row => [...row]) : []
-                }
-              })) : []
-            }));
-          } else if (Array.isArray(data.tiles)) {
-            state.mapWidth = data.mapWidth;
-            state.mapHeight = data.mapHeight;
-            state.tileSize = data.tileSize || 24;
-            state.layers = [{
-              id: 1,
-              name: 'Layer 1',
-              visible: true,
-              tiles: data.tiles,
-              textItems: Array.isArray(data.textItems) ? data.textItems : [],
-              assetItems: []
-            }];
-            state.activeLayerId = 1;
-            state.nextLayerId = 2;
-          } else {
-            throw new Error('Ungültige Layer-Daten');
-          }
-
+          const imported = parseMapImport(JSON.parse(reader.result));
+          pushHistory();
+          Object.assign(state, imported);
+          state.isDrawing = false;
+          state.dragStart = null;
+          state.moveDrag = null;
+          state.hoverCell = null;
           document.getElementById('mapWidth').value = state.mapWidth;
           document.getElementById('mapHeight').value = state.mapHeight;
           document.getElementById('tileSize').value = state.tileSize;
@@ -1847,7 +1860,7 @@
       }
 
       pushHistory();
-      state.isDrawing = state.selectedTool === 'paint' && !getSelectedAsset();
+      state.isDrawing = state.selectedTool === 'erase' || (state.selectedTool === 'paint' && !getSelectedAsset());
       applyTool(x, y);
       if (state.selectedTool === 'fill' || state.selectedTool === 'text') state.isDrawing = false;
     });
@@ -1855,6 +1868,7 @@
     canvas.addEventListener('mousemove', (evt) => {
       if (state.resizeDrag) return;
       const { x, y } = getGridPos(evt);
+      if (state.hoverCell?.x === x && state.hoverCell?.y === y) return;
       state.hoverCell = { x, y };
       const editableLayer = getEditableActiveLayer();
 
@@ -2019,7 +2033,7 @@
     });
 
     window.addEventListener('keydown', (e) => {
-      if (e.target.tagName === 'INPUT') return;
+      if (e.defaultPrevented || e.target.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
         e.preventDefault();
         undo();
@@ -2030,6 +2044,7 @@
         redo();
         return;
       }
+      if (e.ctrlKey || e.metaKey || e.altKey || !['1', '2', '3', '4', '5', '6', '7', 'q', 'e', 'g', '+', '-'].includes(e.key.toLowerCase())) return;
       if (e.key === '1') state.selectedTool = 'paint';
       if (e.key === '2') state.selectedTool = 'erase';
       if (e.key === '3') state.selectedTool = 'fill';

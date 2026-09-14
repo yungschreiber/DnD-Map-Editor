@@ -3,25 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Simple DnD Map Editor</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <title>Map – DnD Studio</title>
+  <link rel="preload" href="assets/fonts/VioletSans-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <meta name="theme-color" content="#191c19" />
   <link rel="stylesheet" href="style.css" />
 </head>
-<body>
+<body class="map-page">
+  <a class="skip-link" href="#workspace">Zur Arbeitsfläche</a>
   <div class="app">
     <header class="topbar">
-      <div class="group brand-group">
-        <div class="brand">Simple DnD Map Editor</div>
-        <a class="nav-link-button" href="asset-editor.html" data-icon="◇">Asset Editor</a>
-        <a class="nav-link-button" href="tile-drawer.html" data-icon="◇">Tile Drawer</a>
-      </div>
-      <div class="group">
+      <div class="group brand-group"><a class="brand" href="index.html" aria-label="DnD Studio – Map-Editor"><span class="brand-mark" aria-hidden="true">◈</span> DnD<span class="brand-suffix">Studio</span></a><nav class="editor-nav" aria-label="Editor wählen"><a href="index.html" aria-current="page">Map</a><a href="asset-editor.html">Assets</a><a href="tile-drawer.html">Tiles</a></nav></div>
+      <div class="group document-actions" aria-label="Dateiaktionen">
         <button id="undoBtn" data-icon="↶">Rückgängig</button>
         <button id="redoBtn" data-icon="↷">Wiederholen</button>
         <button id="newMapBtn" data-icon="+">Neue Map</button>
-        <button id="saveJsonBtn" data-icon="↓">JSON speichern</button>
+        <button class="primary-button" id="saveJsonBtn" data-icon="↓">JSON speichern</button>
         <button id="exportPngBtn" data-icon="⇱">PNG exportieren</button>
         <button id="toggleGridBtn" class="active" data-icon="□">Grid an</button>
       </div>
@@ -60,8 +56,7 @@
         </div>
       </section>
 
-      <section>
-        <h2 class="panel-title">Shortcuts</h2>
+      <details class="shortcuts"><summary>Tastenkürzel <span aria-hidden="true">⌘</span></summary>
         <div class="hint">
           <div><span class="kbd">1</span> Pinsel</div>
           <div><span class="kbd">2</span> Radierer</div>
@@ -74,17 +69,19 @@
           <div><span class="kbd">G</span> Grid</div>
           <div><span class="kbd">+</span> / <span class="kbd">-</span> Zoom</div>
         </div>
-      </section>
+      </details>
     </aside>
 
-    <main class="canvas-wrap" id="canvasWrap">
+    <main class="canvas-wrap" id="canvasWrap" aria-label="Map-Arbeitsfläche">
+<div class="workspace-heading"><div><span class="eyebrow">MAP EDITOR</span><h1>Deine Map</h1></div><span class="workspace-badge">Tiles wählen. Welten bauen.</span></div>
+<div class="canvas-viewport" id="workspace" tabindex="-1">
       <div class="map-stage" id="mapStage">
-        <canvas id="mapCanvas" width="720" height="480"></canvas>
+        <canvas id="mapCanvas" width="720" height="480" aria-label="Zeichenfläche">Dein Browser unterstützt die Zeichenfläche nicht.</canvas>
         <button class="resize-handle resize-handle-right" id="resizeHandleRight" type="button" aria-label="Map nach rechts ziehen"></button>
         <button class="resize-handle resize-handle-bottom" id="resizeHandleBottom" type="button" aria-label="Map nach unten ziehen"></button>
         <button class="resize-handle resize-handle-corner" id="resizeHandleCorner" type="button" aria-label="Map diagonal ziehen"></button>
       </div>
-    </main>
+    </div><div class="workspace-footer"><span class="live-dot" aria-hidden="true"></span> Ziehen zum Zeichnen · Q / E dreht Assets</div></main>
 
     <aside class="assetbar">
       <section class="section">
@@ -92,7 +89,7 @@
           <h2 class="panel-title" style="margin:0;">Assets</h2>
           <button id="refreshAssetsBtn" type="button" data-icon="↻">Aktualisieren</button>
         </div>
-        <div class="hint">Assets werden aus lokalem Draft-Speicher und aus <span class="kbd">assets/index.json</span> geladen.</div>
+        <div class="hint">Deine gespeicherten Assets. Auswählen und auf der Map platzieren.</div>
       </section>
 
       <section style="margin-bottom:0;">
@@ -142,6 +139,7 @@
       </section>
     </aside>
   </div>
+  <script src="ui.js"></script>
   <script src="shared-tiles.js"></script>
   <script src="script.js"></script>
 </body>

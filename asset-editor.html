@@ -4,22 +4,18 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Asset Editor - DnD Map Editor</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="preload" href="assets/fonts/VioletSans-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <meta name="theme-color" content="#191c19" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="asset-page">
+  <a class="skip-link" href="#workspace">Zur Arbeitsfläche</a>
   <div class="asset-app">
     <header class="topbar">
-      <div class="group brand-group">
-        <div class="brand">Grid Asset Editor</div>
-        <a class="nav-link-button" href="index.html" data-icon="◇">Zur Map</a>
-        <a class="nav-link-button" href="tile-drawer.html" data-icon="◇">Tile Drawer</a>
-      </div>
-      <div class="group">
+      <div class="group brand-group"><a class="brand" href="index.html" aria-label="DnD Studio – Map-Editor"><span class="brand-mark" aria-hidden="true">◈</span> DnD<span class="brand-suffix">Studio</span></a><nav class="editor-nav" aria-label="Editor wählen"><a href="index.html">Map</a><a href="asset-editor.html" aria-current="page">Assets</a><a href="tile-drawer.html">Tiles</a></nav></div>
+      <div class="group document-actions" aria-label="Dateiaktionen">
         <button id="newAssetBtn" type="button" data-icon="+">Neues Asset</button>
-        <button id="saveAssetBtn" type="button" data-icon="↓">Asset speichern</button>
+        <button class="primary-button" id="saveAssetBtn" type="button" data-icon="↓">Asset speichern</button>
         <button id="exportAssetBtn" type="button" data-icon="⇱">JSON exportieren</button>
         <button id="exportRepoBtn" type="button" data-icon="↻">Repo-Dateien exportieren</button>
         <button id="toggleAssetGridBtn" class="active" type="button" data-icon="□">Grid an</button>
@@ -89,8 +85,7 @@
         </div>
       </section>
 
-      <section>
-        <h2 class="panel-title">Shortcuts</h2>
+      <details class="shortcuts"><summary>Tastenkürzel <span aria-hidden="true">⌘</span></summary>
         <div class="hint">
           <div><span class="kbd">1</span> Pinsel</div>
           <div><span class="kbd">2</span> Radierer</div>
@@ -102,13 +97,15 @@
           <div><span class="kbd">G</span> Grid</div>
           <div><span class="kbd">+</span> / <span class="kbd">-</span> Zoom</div>
         </div>
-      </section>
+      </details>
     </aside>
 
-    <main class="asset-stage">
+    <main class="asset-stage" aria-label="Assets-Arbeitsfläche">
+<div class="workspace-heading"><div><span class="eyebrow">ASSET EDITOR</span><h1>Kleine Details. Große Welten.</h1></div></div>
+<div class="canvas-viewport" id="workspace" tabindex="-1">
       <section class="asset-canvas-shell">
         <div class="asset-canvas-stage" id="assetCanvasStage">
-          <canvas class="asset-canvas" id="assetCanvas" width="640" height="640"></canvas>
+          <canvas class="asset-canvas" id="assetCanvas" width="640" height="640" aria-label="Zeichenfläche">Dein Browser unterstützt die Zeichenfläche nicht.</canvas>
           <button class="resize-handle resize-handle-right" id="assetResizeHandleRight" type="button" aria-label="Asset nach rechts ziehen"></button>
           <button class="resize-handle resize-handle-bottom" id="assetResizeHandleBottom" type="button" aria-label="Asset nach unten ziehen"></button>
           <button class="resize-handle resize-handle-corner" id="assetResizeHandleCorner" type="button" aria-label="Asset diagonal ziehen"></button>
@@ -121,7 +118,7 @@
           <canvas id="assetPreviewCanvas" width="192" height="192"></canvas>
         </div>
       </section>
-    </main>
+    </div><div class="workspace-footer"><span class="live-dot" aria-hidden="true"></span> Deine Bausteine für die nächste Welt</div></main>
 
     <aside class="asset-tiles">
       <section class="section">
@@ -147,7 +144,7 @@
     <aside class="asset-library">
       <section class="section">
         <h2 class="panel-title">Bibliothek</h2>
-        <div class="hint">Assets werden lokal als Draft gespeichert. Für GitHub-Sync kannst du sie als einzelne Dateien in <span class="kbd">assets</span> plus <span class="kbd">assets/index.json</span> exportieren.</div>
+        <div class="hint">Deine gespeicherten Bausteine. Lade ein Asset zum Bearbeiten oder exportiere es für deine nächste Map.</div>
       </section>
 
       <section style="margin-bottom:0;">
@@ -156,6 +153,7 @@
     </aside>
   </div>
 
+  <script src="ui.js"></script>
   <script src="shared-tiles.js"></script>
   <script src="asset-editor.js"></script>
 </body>

@@ -142,8 +142,14 @@ function loadCustomStore() {
 }
 
 function saveCustomStore(store) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    setStatus('Speichern fehlgeschlagen: Browserspeicher voll oder nicht verfügbar.');
+    return false;
+  }
   window.DND_TILE_SHARED.refreshFromStorage();
+  return true;
 }
 
 function getCellFromEvent(event) {
@@ -421,7 +427,7 @@ function saveTile() {
   const store = loadCustomStore();
   const targetCategory = resolveTargetCategory(store);
   if (!targetCategory) {
-    setStatus('Bitte Kategorie auswÃ¤hlen oder eine neue anlegen');
+    setStatus('Bitte Kategorie auswählen oder eine neue anlegen');
     return;
   }
 
@@ -442,8 +448,8 @@ function saveTile() {
   if (tileIndex === -1) category.tiles.unshift(tile);
   else category.tiles.splice(tileIndex, 1, tile);
 
+  if (!saveCustomStore(store)) return;
   state.tileId = tile.id;
-  saveCustomStore(store);
   renderCategoryOptions();
   renderCustomTileList();
   setStatus(`Tile gespeichert: <strong>${tile.label}</strong>`);
@@ -548,7 +554,7 @@ function renderCustomTileList() {
 
     const deleteButton = document.createElement('button');
     deleteButton.type = 'button';
-    deleteButton.textContent = 'LÃ¶schen';
+    deleteButton.textContent = 'Löschen';
     deleteButton.className = 'danger';
     deleteButton.addEventListener('click', () => deleteCustomTile(category.id, tile.id));
 
@@ -619,12 +625,12 @@ function deleteCustomTile(categoryId, tileId) {
 
   category.tiles = category.tiles.filter(tile => tile.id !== tileId);
   store.categories = store.categories.filter(entry => entry.tiles.length);
-  saveCustomStore(store);
+  if (!saveCustomStore(store)) return;
 
   if (state.tileId === tileId) resetEditor();
   renderCategoryOptions();
   renderCustomTileList();
-  setStatus('Tile gelÃ¶scht');
+  setStatus('Tile gelöscht');
 }
 
 canvas.addEventListener('contextmenu', event => event.preventDefault());
@@ -701,7 +707,8 @@ window.addEventListener('mouseup', () => {
 });
 
 window.addEventListener('keydown', event => {
-  if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') return;
+  if (event.defaultPrevented || event.target.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target.tagName)) return;
+  if (event.ctrlKey || event.metaKey || event.altKey || !['1', '2', '3', '4', '5', '6', '7', 'g', '+', '-'].includes(event.key.toLowerCase())) return;
   if (event.key === '1') state.currentTool = 'paint';
   if (event.key === '2') state.currentTool = 'erase';
   if (event.key === '3') state.currentTool = 'fill';

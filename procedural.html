@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Procedural – DnD Studio</title>
+  <link rel="preload" href="assets/fonts/VioletSans-Regular.woff2" as="font" type="font/woff2" crossorigin />
+  <meta name="theme-color" content="#191c19" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="procedural.css" />
+</head>
+<body class="procedural-page">
+  <a class="skip-link" href="#workspace">Zur Landschaft</a>
+  <div class="app procedural-app">
+    <header class="topbar">
+      <div class="group brand-group">
+        <a class="brand" href="index.html" aria-label="DnD Studio – Map-Editor"><span class="brand-mark" aria-hidden="true">◈</span> DnD<span class="brand-suffix">Studio</span></a>
+        <nav class="editor-nav" aria-label="Editor wählen"><a href="index.html">Map</a><a href="asset-editor.html">Assets</a><a href="tile-drawer.html">Tiles</a><a href="procedural.html" aria-current="page">Procedural</a></nav>
+      </div>
+      <div class="group document-actions" aria-label="Landschaftsaktionen">
+        <button id="undoTerrainBtn" type="button" data-icon="↶" disabled>Rückgängig</button>
+        <button id="redoTerrainBtn" type="button" data-icon="↷" disabled>Wiederholen</button>
+        <button id="exportTerrainBtn" type="button" data-icon="↓" disabled>PNG exportieren</button>
+        <button id="oceanTerrainBtn" type="button" data-icon="≈">Leere Wasserfläche</button>
+        <button id="newTerrainBtn" type="button" class="primary-button" data-icon="✦">Neue Landschaft</button>
+      </div>
+    </header>
+
+    <aside class="sidebar" aria-label="Landschaft einstellen">
+      <section class="section terrain-controls">
+        <h2 class="panel-title">Gelände formen</h2>
+        <button id="raiseTerrainBtn" type="button" data-icon="↟" aria-pressed="false" disabled>Berghöhe</button>
+        <p class="hint">Aktivieren, gedrückt halten und langsam ziehen. Das Gelände wächst sanft bis zum Höhenlimit. Mehrere Durchgänge bauen es schrittweise auf.</p>
+        <div class="terrain-brush-presets" role="group" aria-label="Höhenlimit wählen">
+          <button type="button" data-brush-height="4" aria-pressed="true" class="active">Flachland</button>
+          <button type="button" data-brush-height="18" aria-pressed="false">Hügel</button>
+          <button type="button" data-brush-height="50" aria-pressed="false">Berge</button>
+        </div>
+        <div class="field">
+          <label for="terrainBrushHeight">Höhenlimit über Wasser <output id="brushHeightValue" for="terrainBrushHeight">+4 %</output></label>
+          <input id="terrainBrushHeight" type="range" min="1" max="100" value="4" />
+        </div>
+        <p class="hint">Flachland bleibt auch bei längerem Halten niedrig. Bereits höheres Gelände wird nicht abgesenkt.</p>
+        <div class="field">
+          <label for="terrainBrushSize">Pinselgröße <output id="brushSizeValue" for="terrainBrushSize">10</output></label>
+          <input id="terrainBrushSize" type="range" min="2" max="20" value="10" />
+        </div>
+        <div class="field">
+          <label for="terrainBrushStrength">Tempo <output id="brushStrengthValue" for="terrainBrushStrength">20 %</output></label>
+          <input id="terrainBrushStrength" type="range" min="1" max="100" value="20" />
+        </div>
+        <p class="hint">Rechts ziehen: verschieben. Mitte halten und nach oben/unten ziehen: Blickwinkel ändern. Q / E gedrückt halten: stufenlos drehen. Strg + Mausrad: zoomen. Strg + Z: Pinselstrich rückgängig.</p>
+      </section>
+      <form id="terrainForm">
+        <section class="section">
+          <h2 class="panel-title">Deine Welt</h2>
+          <div class="field">
+            <label for="terrainSeed">Seed</label>
+            <input id="terrainSeed" name="seed" type="text" value="Morgenwald" maxlength="80" required />
+          </div>
+          <p class="hint">Ein Name, eine Zahl, eine Idee. Gleicher Seed und gleiche Einstellungen ergeben dieselbe Landschaft.</p>
+        </section>
+        <section class="section terrain-controls">
+          <h2 class="panel-title">Landschaft</h2>
+          <div class="field">
+            <label for="terrainWater">Wasserstand <output id="waterValue" for="terrainWater">38 %</output></label>
+            <input id="terrainWater" name="water" type="range" min="15" max="65" value="38" />
+          </div>
+          <div class="field">
+            <label for="terrainRelief">Höhenwirkung <output id="reliefValue" for="terrainRelief">65 %</output></label>
+            <input id="terrainRelief" name="relief" type="range" min="0" max="100" value="65" />
+          </div>
+          <div class="field">
+            <label for="terrainForest">Walddichte <output id="forestValue" for="terrainForest">45 %</output></label>
+            <input id="terrainForest" name="forest" type="range" min="0" max="100" value="45" />
+          </div>
+          <button class="primary-button" id="generateTerrainBtn" type="submit" data-icon="↻">Generieren</button>
+          <p class="hint" id="terrainSettingsHint">Einstellungen wählen und auf „Generieren“ klicken.</p>
+        </section>
+      </form>
+      <section class="section">
+        <h2 class="panel-title">Deine Wasserwelt</h2>
+        <p class="hint">Starte mit einer Insel oder einer leeren Wasserfläche. Verschiebe die Ansicht und zeichne weiteres Land ins Meer. Deine Geländeänderungen und die Ansicht werden in diesem Browser gespeichert.</p>
+        <p class="hint">PNG exportiert den sichtbaren Ausschnitt. Eine Übernahme in den Map-Editor ist noch nicht enthalten.</p>
+      </section>
+    </aside>
+
+    <main class="canvas-wrap" aria-label="Generierte Landschaft">
+      <div class="workspace-heading">
+        <div><span class="eyebrow">PROCEDURAL</span><h1 id="terrainTitle">Morgenwald</h1></div>
+        <div class="workspace-tools">
+          <div class="group" aria-label="Ansicht drehen">
+            <button id="rotateTerrainLeftBtn" type="button" title="Nach links drehen (Q)" aria-label="Nach links drehen (Q)">↶ Q</button>
+            <output id="terrainRotation" aria-label="Drehwinkel">45°</output>
+            <button id="rotateTerrainRightBtn" type="button" title="Nach rechts drehen (E)" aria-label="Nach rechts drehen (E)">E ↷</button>
+          </div>
+          <select id="terrainPitch" aria-label="Blickwinkel">
+            <option value="10">Flach · 10°</option>
+            <option value="30" selected>Isometrisch · 30°</option>
+            <option value="60">Vogelperspektive · 60°</option>
+            <option value="90">Draufsicht · 90°</option>
+            <option id="terrainCustomPitch" value="custom" hidden>Eigener Blickwinkel</option>
+          </select>
+          <select id="terrainZoom" aria-label="Vergrößerung der Landschaft">
+            <option value="0.25">25 %</option>
+            <option value="0.5">50 %</option>
+            <option value="1" selected>100 %</option>
+            <option value="2">200 %</option>
+            <option value="3">300 %</option>
+            <option value="4">400 %</option>
+            <option id="terrainCustomZoom" value="custom" hidden>Eigener Zoom</option>
+          </select>
+          <button id="resetTerrainViewBtn" type="button" title="Drehung, Neigung und Zoom zurücksetzen">Standardansicht</button>
+        </div>
+      </div>
+      <div class="canvas-viewport terrain-viewport" id="workspace" tabindex="-1">
+        <canvas id="terrainCanvas" width="768" height="512" tabindex="0" aria-label="Bearbeitbare isometrische Landschaft">Dein Browser unterstützt diese Landschaftsvorschau nicht.</canvas>
+      </div>
+      <div class="workspace-footer" role="status" aria-live="polite"><span class="live-dot" aria-hidden="true"></span><span id="terrainStatus">Landschaft wird erzeugt …</span></div>
+    </main>
+  </div>
+  <div id="terrainBrushCursor" aria-hidden="true" hidden></div>
+  <script src="terrain-generator.js"></script>
+  <script src="terrain-renderer.js"></script>
+  <script src="procedural.js"></script>
+</body>
+</html>

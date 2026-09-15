@@ -1,0 +1,29 @@
+.procedural-app { grid-template-columns: 260px minmax(0, 1fr); }
+.terrain-controls label { display: flex; justify-content: space-between; gap: 12px; }
+.terrain-controls output { color: var(--accent); font-variant-numeric: tabular-nums; }
+.terrain-controls input[type='range'] { width: 100%; margin: 6px 0 16px; accent-color: var(--accent); cursor: pointer; }
+.terrain-controls button { width: 100%; }
+.terrain-zoom-label { margin: 0; }
+#terrainZoom, #terrainPitch { width: auto; }
+#terrainRotation { min-width: 42px; padding: 0 6px; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted); }
+.procedural-page .workspace-tools { gap: 8px; }
+.terrain-viewport { display: flex; align-items: safe center; justify-content: safe center; padding: 0; background: #204454; }
+#terrainCanvas { display: block; flex: 0 0 auto; cursor: grab; border: 0; background: #204454; box-shadow: none; touch-action: none; }
+#terrainCanvas.sculpting { cursor: crosshair; }
+#terrainCanvas.panning { cursor: grabbing; }
+#terrainBrushCursor { position: fixed; pointer-events: none; z-index: 5; transform: translate(-50%, -50%); border: 1px solid #edffcd; border-radius: 50%; background: #c7e99b18; box-shadow: 0 0 0 1px #15282d99; }
+#raiseTerrainBtn { min-height: 44px; }
+.terrain-brush-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-bottom: 16px; }
+.terrain-brush-presets button { padding: 8px 3px; font-size: 11px; }
+#terrainTitle { overflow-wrap: anywhere; }
+.procedural-page .workspace-heading > div:first-child { min-width: 0; }
+.procedural-page .workspace-footer { min-height: 43px; }
+@media (max-width: 900px) {
+  .procedural-app { grid-template-columns: 210px minmax(0, 1fr); }
+  .procedural-page .sidebar { grid-row: 2; }
+  .procedural-page .canvas-wrap { height: 75dvh; }
+}
+@media (max-width: 600px) {
+  .procedural-page .canvas-wrap { height: 60dvh; min-height: 350px; }
+  .procedural-page .terrain-viewport { padding: 0; }
+}

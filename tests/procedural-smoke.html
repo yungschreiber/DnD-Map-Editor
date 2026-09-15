@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="de">
+<meta charset="utf-8" />
+<title>Procedural browser checks</title>
+<style>body { font: 14px system-ui; } iframe { width: 100%; height: 650px; border: 1px solid #777; } pre { white-space: pre-wrap; }</style>
+<h1>Procedural browser checks</h1>
+<p>Über einen lokalen HTTP-Server in einem separaten Browserprofil öffnen. Die Prüfung erzeugt Testlandschaften; gespeicherte Procedural-Einstellungen werden anschließend wiederhergestellt.</p>
+<pre id="result">RUNNING</pre>
+<iframe id="editor" title="Procedural test" src="../procedural.html"></iframe>
+<script>
+(async () => {
+  const result = document.getElementById('result');
+  const frame = document.getElementById('editor');
+  const key = 'dnd-map-editor-procedural-v1';
+  const saved = localStorage.getItem(key);
+  const errors = [];
+  const assert = (condition, message) => { if (!condition) throw new Error(message); };
+  const wait = async predicate => {
+    for (let i = 0; i < 300; i++) {
+      if (predicate()) return;
+      await new Promise(resolve => setTimeout(resolve, 30));
+    }
+    throw new Error('Timed out waiting for the preview');
+  };
+  try {
+    await wait(() => frame.contentDocument?.getElementById('workspace')?.getAttribute('aria-busy') === 'false');
+    let win = frame.contentWindow, doc = win.document;
+    win.addEventListener('error', event => errors.push(event.message));
+    const image = () => doc.getElementById('terrainCanvas').toDataURL();
+    const submit = async () => {
+      doc.getElementById('terrainForm').dispatchEvent(new win.Event('submit', { cancelable: true }));
+      await wait(() => doc.getElementById('workspace').getAttribute('aria-busy') === 'false');
+    };
+    assert(doc.querySelector('.editor-nav [aria-current="page"]').textContent === 'Procedural', 'Active navigation');
+    doc.getElementById('terrainSeed').value = 'Browser-Test';
+    doc.getElementById('terrainWater').value = 38;
+    doc.getElementById('terrainRelief').value = 65;
+    doc.getElementById('terrainForest').value = 45;
+    await submit();
+    const first = image();
+    await submit();
+    assert(image() === first, 'Same seed must produce identical pixels');
+    const canvas = doc.getElementById('terrainCanvas');
+    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let opaque = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i]) opaque++;
+    assert(opaque === canvas.width * canvas.height, 'Water fills the entire view');
+    doc.getElementById('terrainRelief').value = 0;
+    await submit();
+    assert(image() !== first, 'Relief changes visible geometry');
+    doc.getElementById('terrainSeed').value = '<b>Seed</b>';
+    await submit();
+    assert(doc.getElementById('terrainTitle').textContent === '<b>Seed</b>' && !doc.querySelector('#terrainTitle b'), 'Seed is plain text');
+    assert(JSON.parse(localStorage.getItem(key)).settings.seed === '<b>Seed</b>', 'Separate saved settings');
+    let download;
+    const originalClick = win.HTMLAnchorElement.prototype.click;
+    win.HTMLAnchorElement.prototype.click = function () { download = { href: this.href, name: this.download }; };
+    doc.getElementById('exportTerrainBtn').click();
+    await wait(() => download);
+    win.HTMLAnchorElement.prototype.click = originalClick;
+    assert(download.name.endsWith('.png') && download.href.startsWith('blob:'), 'PNG download');
+    doc.getElementById('newTerrainBtn').click();
+    await wait(() => doc.getElementById('workspace').getAttribute('aria-busy') === 'false');
+    assert(doc.getElementById('terrainSeed').value !== '<b>Seed</b>', 'New landscape gets a fresh seed');
+    const latest = image();
+    frame.contentWindow.location.reload();
+    await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+    win = frame.contentWindow; doc = win.document;
+    await wait(() => doc.getElementById('workspace').getAttribute('aria-busy') === 'false');
+    assert(image() === latest, 'Reload restores the generated landscape');
+    for (const width of [390, 900, 1440]) {
+      frame.style.width = `${width}px`;
+      await new Promise(resolve => setTimeout(resolve, 300));
+      assert(doc.documentElement.scrollWidth <= width, `No page overflow at ${width}px`);
+      const rect = doc.getElementById('terrainCanvas').getBoundingClientRect();
+      assert(rect.width > 0 && rect.width <= doc.getElementById('workspace').clientWidth, `Preview fits at ${width}px`);
+    }
+    doc.getElementById('oceanTerrainBtn').click();
+    await wait(() => doc.getElementById('workspace').getAttribute('aria-busy') === 'false');
+    const ocean = image();
+    doc.getElementById('raiseTerrainBtn').click();
+    assert(doc.getElementById('terrainBrushStrength').value === '20', 'Gentle default tempo');
+    assert(doc.getElementById('terrainBrushHeight').value === '4', 'Flatland is the default ceiling');
+    doc.querySelector('[data-brush-height="50"]').click();
+    assert(doc.getElementById('terrainBrushHeight').value === '50', 'Mountain preset selects a higher ceiling');
+    doc.querySelector('[data-brush-height="4"]').click();
+    doc.getElementById('terrainBrushStrength').value = 100;
+    const editingCanvas = doc.getElementById('terrainCanvas');
+    const rect = editingCanvas.getBoundingClientRect();
+    const pointer = (type, x, y, extra = {}) => editingCanvas.dispatchEvent(new win.PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse', button: 0,
+      buttons: type === 'pointerup' || type === 'pointercancel' ? 0 : 1,
+      clientX: rect.left + x, clientY: rect.top + y, ...extra
+    }));
+    const x = rect.width / 2, y = rect.height / 2;
+    pointer('pointerdown', x, y);
+    const clicked = image();
+    assert(clicked === ocean, 'Pressing alone must not create a height jump');
+    await new Promise(resolve => setTimeout(resolve, 450));
+    assert(image() !== clicked, 'Holding the mouse raises terrain without movement');
+    pointer('pointermove', x + 150, y + 30);
+    pointer('pointerup', x + 150, y + 30);
+    let painted = image();
+    assert(painted !== ocean, 'Brush visibly changes water into terrain');
+    let paintedDraft = JSON.parse(localStorage.getItem(key));
+    assert(paintedDraft.edits.length > 100, 'Sculpted heights are saved');
+    assert(paintedDraft.edits.every(entry => entry[2] <= .42 + 1e-10), 'Flatland stays below the selected ceiling');
+    await new Promise(resolve => setTimeout(resolve, 180));
+    assert(image() === painted, 'Release stops growing');
+    doc.getElementById('undoTerrainBtn').click();
+    assert(image() === ocean, 'One undo removes the entire held and dragged stroke');
+    doc.getElementById('redoTerrainBtn').click();
+    assert(image() === painted, 'Redo restores the complete stroke');
+    pointer('pointerdown', x - 100, y);
+    pointer('pointercancel', x - 100, y);
+    const cancelled = image();
+    await new Promise(resolve => setTimeout(resolve, 150));
+    assert(image() === cancelled, 'Cancellation stops the brush');
+    doc.getElementById('undoTerrainBtn').click();
+    assert(image() === painted, 'Cancelled gesture is one undoable stroke');
+    pointer('pointerdown', x, y, { button: 2, buttons: 2 });
+    pointer('pointermove', x - rect.width, y, { button: -1, buttons: 2 });
+    pointer('pointerup', x - rect.width, y, { button: 2, buttons: 0 });
+    const panned = JSON.parse(localStorage.getItem(key));
+    assert(Math.abs(panned.camera.x - paintedDraft.camera.x) > 90, 'Right drag pans beyond the original island');
+    assert(JSON.stringify(panned.edits) === JSON.stringify(paintedDraft.edits), 'Panning never changes heights');
+    pointer('pointerdown', x, y);
+    pointer('pointermove', x + 100, y);
+    pointer('pointerup', x + 100, y);
+    painted = image(); paintedDraft = JSON.parse(localStorage.getItem(key));
+    assert(paintedDraft.edits.some(([x, y]) => x > 95 || y < 0), 'Distant water is editable');
+    frame.contentWindow.location.reload();
+    await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+    win = frame.contentWindow; doc = win.document;
+    await wait(() => doc.getElementById('workspace').getAttribute('aria-busy') === 'false');
+    assert(image() === painted, 'Reload restores sculpted terrain, not just its seed');
+    assert(JSON.stringify(JSON.parse(localStorage.getItem(key)).edits) === JSON.stringify(paintedDraft.edits), 'All edits survive reload');
+    const cameraCanvas = doc.getElementById('terrainCanvas');
+    const cameraRect = cameraCanvas.getBoundingClientRect();
+    const draft = () => JSON.parse(localStorage.getItem(key));
+    const baseCamera = draft().camera;
+    const cameraKey = key => cameraCanvas.dispatchEvent(new win.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    cameraKey('e');
+    assert(draft().camera.yaw === (baseCamera.yaw + 15) % 360, 'E rotates right');
+    cameraKey('q');
+    assert(draft().camera.yaw === baseCamera.yaw, 'Q rotates left');
+    doc.getElementById('terrainSeed').dispatchEvent(new win.KeyboardEvent('keydown', { key: 'q', bubbles: true }));
+    assert(draft().camera.yaw === baseCamera.yaw, 'Typing Q in the seed must not rotate');
+    const middle = (type, y) => cameraCanvas.dispatchEvent(new win.PointerEvent(type, { bubbles: true, cancelable: true,
+      pointerId: 2, pointerType: 'mouse', button: 1, buttons: type === 'pointerup' ? 0 : 4,
+      clientX: cameraRect.left + cameraRect.width / 2, clientY: y }));
+    const centerY = cameraRect.top + cameraRect.height / 2;
+    middle('pointerdown', centerY); middle('pointermove', centerY - 900); middle('pointerup', centerY - 900);
+    assert(draft().camera.pitch === 90, 'Middle drag up reaches the top view');
+    middle('pointerdown', centerY); middle('pointermove', centerY + 900); middle('pointerup', centerY + 900);
+    assert(draft().camera.pitch === 10, 'Middle drag down reaches a bounded flat view');
+    const wheel = new win.WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -120,
+      clientX: cameraRect.left + cameraRect.width / 2, clientY: centerY });
+    cameraCanvas.dispatchEvent(wheel);
+    assert(wheel.defaultPrevented && draft().camera.zoom > baseCamera.zoom, 'Ctrl+wheel zooms the map and suppresses browser zoom');
+    const ordinaryWheel = new win.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -120 });
+    const zoomed = draft().camera.zoom;
+    cameraCanvas.dispatchEvent(ordinaryWheel);
+    assert(!ordinaryWheel.defaultPrevented && draft().camera.zoom === zoomed, 'Ordinary wheel keeps its default behavior');
+    assert(JSON.stringify(draft().edits) === JSON.stringify(paintedDraft.edits), 'Camera gestures do not sculpt terrain');
+    const savedCamera = draft().camera;
+    frame.contentWindow.location.reload();
+    await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+    win = frame.contentWindow; doc = win.document;
+    await wait(() => doc.getElementById('workspace').getAttribute('aria-busy') === 'false');
+    assert(JSON.stringify(draft().camera) === JSON.stringify(savedCamera), 'Camera angles and zoom survive reload');
+    doc.getElementById('resetTerrainViewBtn').click();
+    assert(draft().camera.yaw === 45 && draft().camera.pitch === 30 && draft().camera.zoom === 1, 'Reset restores the standard view');
+    assert(errors.length === 0, errors.join('\n'));
+    result.textContent = 'PASS: generation, PNG, persistence, responsive widths, controlled sculpting, undo/redo, distant water, Q/E, middle-drag tilt, Ctrl+wheel zoom, camera persistence and reset.';
+  } catch (error) {
+    result.textContent = `FAIL: ${error.stack}`;
+  } finally {
+    if (saved === null) localStorage.removeItem(key); else localStorage.setItem(key, saved);
+  }
+})();
+</script>
+</html>

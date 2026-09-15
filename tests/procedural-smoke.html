@@ -253,17 +253,30 @@
     doc.getElementById('undoTerrainBtn').click();
     assert(image() === sparse, 'Forest clearing is undoable');
     doc.getElementById('waterTerrainBtn').click();
-    assert(!doc.getElementById('waterToolPanel').hidden && doc.getElementById('forestToolPanel').hidden, 'Water panel is prepared');
-    assert(doc.getElementById('waterBrushDepth').matches(':disabled'), 'Unimplemented water controls are disabled');
+    assert(!doc.getElementById('waterToolPanel').hidden && doc.getElementById('forestToolPanel').hidden, 'Water panel opens');
+    assert(!doc.getElementById('waterBrushDepth').matches(':disabled'), 'Water depth is enabled');
+    assert(doc.getElementById('waterTerrainBtn').getAttribute('aria-pressed') === 'true', 'Water brush activates');
+    doc.getElementById('waterBrushMode').value = 'river';
+    doc.getElementById('waterBrushSize').value = 4;
+    forestStroke();
+    const riverImage = image(), riverDraft = draft();
+    assert(riverImage !== sparse && riverDraft.waterEdits.length > 20, 'Water stroke visibly fills a channel above sea level');
+    assert(JSON.stringify(riverDraft.edits) !== heightsBeforeForest, 'Water actually carves the terrain');
+    assert(riverDraft.waterEdits.every(([x, y, level]) => level > .38 && level < .5), 'Local water stays near the elevated terrain surface');
+    doc.getElementById('undoTerrainBtn').click();
+    assert(image() === sparse && draft().waterEdits.length === 0, 'Undo restores both dry terrain and forest');
+    doc.getElementById('redoTerrainBtn').click();
+    assert(image() === riverImage, 'Redo restores the carved river');
     doc.getElementById('raiseTerrainBtn').click();
     assert(!doc.getElementById('heightToolPanel').hidden && doc.getElementById('waterToolPanel').hidden, 'Height settings remain available');
     frame.contentWindow.location.reload();
     await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
     win = frame.contentWindow; doc = win.document;
     await wait(() => doc.getElementById('workspace').getAttribute('aria-busy') === 'false');
-    assert(image() === sparse && JSON.stringify(draft().forestEdits) === JSON.stringify(sparseDraft.forestEdits), 'Forest edits survive reload');
+    assert(image() === riverImage && JSON.stringify(draft().waterEdits) === JSON.stringify(riverDraft.waterEdits), 'Local water survives reload');
+    assert(JSON.stringify(draft().forestEdits) === JSON.stringify(sparseDraft.forestEdits), 'Forest edits survive reload');
     assert(errors.length === 0, errors.join('\n'));
-    result.textContent = 'PASS: generation, PNG, responsive layout, sculpting, camera controls, right tool panels, forest density, stable repainting, forest undo/redo and persistence, prepared water UI.';
+    result.textContent = 'PASS: generation, PNG, responsive layout, sculpting, camera controls, tool panels, forest density, local water carving, water undo/redo and persistence.';
   } catch (error) {
     result.textContent = `FAIL: ${error.stack}`;
   } finally {

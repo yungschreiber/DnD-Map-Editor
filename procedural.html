@@ -100,9 +100,34 @@
           <button id="waterTerrainBtn" type="button" aria-pressed="false" aria-expanded="false" aria-controls="waterToolPanel" disabled>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3s-6 7-6 11a6 6 0 0 0 12 0c0-4-6-11-6-11Z"/><path d="M9 14a3 3 0 0 0 3 3"/></svg><span>Wasser</span>
           </button>
+          <button id="buildingTerrainBtn" type="button" aria-pressed="false" aria-expanded="false" aria-controls="buildingToolPanel" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m2 11 10-8 10 8M5 9v12h14V9M10 21v-7h4v7"/></svg><span>Gebäude</span>
+          </button>
         </div>
       </div>
       <div class="terrain-tool-options">
+        <section id="buildingToolPanel" class="terrain-controls" aria-labelledby="buildingToolTitle" hidden>
+          <h2 id="buildingToolTitle" class="panel-title">Gebäude</h2>
+          <div class="field">
+            <label for="buildingType">Haustyp</label>
+            <select id="buildingType"><option value="house">Wohnhaus · Satteldach</option></select>
+          </div>
+          <div class="field">
+            <label for="buildingMode">Aktion</label>
+            <select id="buildingMode"><option value="place">Haus bauen</option><option value="select">Haus auswählen</option></select>
+          </div>
+          <div class="field">
+            <label>Drehung <output id="buildingRotation">0°</output></label>
+            <div class="building-actions" role="group" aria-label="Haus drehen">
+              <button id="rotateBuildingLeftBtn" type="button" title="Haus um 90° nach links drehen (Q)">↶ Q</button>
+              <button id="rotateBuildingRightBtn" type="button" title="Haus um 90° nach rechts drehen (E)">E ↷</button>
+            </div>
+          </div>
+          <button id="deleteBuildingBtn" type="button" disabled>Ausgewähltes Haus löschen</button>
+          <p id="buildingStatus" class="terrain-tool-help" role="status" aria-live="polite">Bewege den Zeiger über eine freie Baufläche.</p>
+          <p class="terrain-tool-help">Grün: Bauen möglich. Rot: Wasser, steiler Hang oder zu wenig Abstand. Klicken platziert ein Haus am Raster. Q/E dreht das Haus um 90°. Ein vorhandenes Haus anklicken, um es auszuwählen; Entf löscht, Esc beendet das Werkzeug. Die Ansicht lässt sich weiterhin mit den Drehbuttons bewegen.</p>
+          <output id="buildingCount">0 Häuser</output>
+        </section>
         <section id="heightToolPanel" class="terrain-controls" aria-labelledby="heightToolTitle">
           <h2 id="heightToolTitle" class="panel-title">Berghöhe</h2>
           <div class="terrain-brush-presets" role="group" aria-label="Höhenlimit wählen">
@@ -138,18 +163,24 @@
             <input id="forestBrushDensity" type="range" min="0" max="100" value="50" title="0 % entfernt den Wald im Pinselbereich" />
           </div>
         </section>
-        <section id="waterToolPanel" aria-labelledby="waterToolTitle" hidden>
-          <h2 id="waterToolTitle" class="panel-title">Wasser <span class="terrain-tool-badge">In Vorbereitung</span></h2>
-          <fieldset class="terrain-controls terrain-coming-soon" disabled aria-label="Wasserwerkzeug in Vorbereitung">
-            <div class="field">
-              <label for="waterBrushSize">Pinselgröße</label>
-              <input id="waterBrushSize" type="range" min="2" max="30" value="12" />
-            </div>
-            <div class="field">
-              <label for="waterBrushDepth">Tiefe</label>
-              <input id="waterBrushDepth" type="range" min="1" max="100" value="20" />
-            </div>
-          </fieldset>
+        <section id="waterToolPanel" class="terrain-controls" aria-labelledby="waterToolTitle" hidden>
+          <h2 id="waterToolTitle" class="panel-title">Wasser</h2>
+          <div class="field">
+            <label for="waterBrushMode">Gewässer</label>
+            <select id="waterBrushMode">
+              <option value="lake">See · ebener Wasserspiegel</option>
+              <option value="river">Fluss · folgt dem Gelände</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="waterBrushSize">Pinselgröße <output id="waterBrushSizeValue" for="waterBrushSize">6</output></label>
+            <input id="waterBrushSize" type="range" min="2" max="30" value="6" />
+          </div>
+          <div class="field">
+            <label for="waterBrushDepth">Tiefe <output id="waterBrushDepthValue" for="waterBrushDepth">20 %</output></label>
+            <input id="waterBrushDepth" type="range" min="1" max="100" value="20" />
+          </div>
+          <p class="terrain-tool-help">Klicken formt eine Mulde und füllt sie mit Wasser, auch auf Bergen. Ziehen erweitert das Gewässer. Für schmale Flüsse einen kleinen Pinsel wählen. Beim See bestimmt der Startpunkt den Wasserspiegel; tiefere Ufer bleiben frei. Mehr Tiefe vergrößert die Mulde an Hängen.</p>
         </section>
       </div>
     </aside>

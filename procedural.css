@@ -1,12 +1,16 @@
 .procedural-app { grid-template-columns: 220px minmax(0, 1fr) 280px; }
 .terrain-inspector { grid-column: 3; grid-row: 2; }
 .terrain-tool-header { padding: 20px 16px; border-bottom: 1px solid var(--border); }
-.terrain-tool-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.terrain-tool-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .terrain-tool-grid button { flex-direction: column; gap: 7px; padding: 12px 4px; min-height: 72px; font-size: 12px; }
 .terrain-tool-grid svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
 .terrain-tool-options { padding: 22px 16px; overflow: auto; min-height: 0; }
-.terrain-tool-badge { display: block; margin-top: 8px; color: var(--muted); font-size: 10px; text-transform: none; letter-spacing: 0; }
-.terrain-coming-soon { padding: 0; margin: 0; border: 0; opacity: .45; }
+.terrain-tool-help { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.building-actions { display: flex; gap: 8px; margin: 8px 0 16px; }
+#buildingToolPanel .terrain-tool-help { margin: 14px 0; }
+#buildingStatus { color: var(--accent); }
+#buildingStatus[data-invalid='true'] { color: #f39d8f; }
+#buildingCount { display: block; margin-top: 14px; font-size: 12px; }
 #terrainBrushCursor[data-tool='forest'] { border-color: #a5efac; background: #78d47b26; }
 .terrain-controls label { display: flex; justify-content: space-between; gap: 12px; }
 .terrain-controls output { color: var(--accent); font-variant-numeric: tabular-nums; }
@@ -21,6 +25,7 @@
 #terrainCanvas.sculpting { cursor: crosshair; }
 #terrainCanvas.panning { cursor: grabbing; }
 #terrainBrushCursor { position: fixed; pointer-events: none; z-index: 5; transform: translate(-50%, -50%); border: 1px solid #edffcd; border-radius: 50%; background: #c7e99b18; box-shadow: 0 0 0 1px #15282d99; }
+#terrainBrushCursor[data-tool='water'] { border-color: #a9e7ff; background: #65c5ed24; }
 #raiseTerrainBtn { min-height: 44px; }
 .terrain-brush-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin: 12px 0 16px; }
 .terrain-brush-presets button { padding: 8px 3px; font-size: 11px; }

@@ -24,10 +24,17 @@
   const brushHeight = byId('terrainBrushHeight');
   const forestSize = byId('forestBrushSize');
   const forestDensity = byId('forestBrushDensity');
+  const waterSize = byId('waterBrushSize');
+  const waterDepth = byId('waterBrushDepth');
+  const waterMode = byId('waterBrushMode');
+  const buildingMode = byId('buildingMode');
+  const deleteBuildingButton = byId('deleteBuildingBtn');
+  let buildingRotation = 0, selectedBuildingId = null, buildingPreview = null, buildingPoint = null;
   const terrainTools = {
     height: { button: brushButton, panel: byId('heightToolPanel'), label: 'Berghöhe', size: brushSize, available: true },
     forest: { button: byId('forestTerrainBtn'), panel: byId('forestToolPanel'), label: 'Wald', size: forestSize, available: true },
-    water: { button: byId('waterTerrainBtn'), panel: byId('waterToolPanel'), label: 'Wasser', available: false }
+    water: { button: byId('waterTerrainBtn'), panel: byId('waterToolPanel'), label: 'Wasser', size: waterSize, available: true },
+    building: { button: byId('buildingTerrainBtn'), panel: byId('buildingToolPanel'), label: 'Gebäude', available: true }
   };
   let selectedTool = 'height';
   const cursor = byId('terrainBrushCursor');
@@ -53,10 +60,10 @@
     redoButton.disabled = busy || !!gesture || !redo.length;
     [generateButton, newButton, oceanButton, exportButton, brushButton, zoomInput, pitchInput, rotateLeft, rotateRight, resetView].forEach(button => { button.disabled = busy || !current; });
     Object.values(terrainTools).forEach(tool => { tool.button.disabled = busy || !current; });
+    syncBuildingControls();
   }
   function describe() {
-    status.textContent = !terrainTools[selectedTool].available ? 'Wasser · In Vorbereitung'
-      : brushActive ? `${terrainTools[selectedTool].label} aktiv` : 'Bereit';
+    status.textContent = brushActive ? `${terrainTools[selectedTool].label} aktiv` : 'Bereit';
     canvas.setAttribute('aria-label', `Bearbeitbare isometrische Landschaft „${current.settings.seed}“`);
   }
   function persist() {
@@ -81,7 +88,94 @@
   function syncTerrainOutputs() {
     controls.forEach(({ input, output }) => { output.value = `${input.value} %`; });
   }
-  function render() { renderer.render(current); }
+  function render() {
+    buildingPreview = buildingPoint = null;
+    renderer.render(current);
+    renderer.renderOverlay(null, selectedBuildingId);
+    syncBuildingControls();
+  }
+  function buildingsActive() { return brushActive && selectedTool === 'building'; }
+  function syncBuildingControls() {
+    const selected = current?.buildings.find(building => building.id === selectedBuildingId);
+    deleteBuildingButton.disabled = busy || !buildingsActive() || !selected;
+    byId('rotateBuildingLeftBtn').disabled = byId('rotateBuildingRightBtn').disabled = busy || !current || !buildingsActive();
+    byId('buildingRotation').value = `${selected?.rotation ?? buildingRotation}°`;
+    const count = current?.buildings.length || 0;
+    byId('buildingCount').value = `${count} ${count === 1 ? 'Haus' : 'Häuser'}`;
+    for (const [button, symbol, key, direction] of [[rotateLeft, '↶', 'Q', 'links'], [rotateRight, '↷', 'E', 'rechts']]) {
+      button.textContent = buildingsActive() ? symbol : key === 'Q' ? '↶ Q' : 'E ↷';
+      button.title = `Ansicht nach ${direction} drehen${buildingsActive() ? '' : ` (${key})`}`;
+      button.setAttribute('aria-label', button.title);
+    }
+  }
+  function buildingMessage(message, invalid = false) {
+    byId('buildingStatus').textContent = message;
+    byId('buildingStatus').dataset.invalid = String(invalid);
+  }
+  function clearBuildingPreview() {
+    buildingPreview = buildingPoint = null;
+    renderer.renderOverlay(null, selectedBuildingId);
+  }
+  function previewBuilding(point) {
+    buildingPoint = point;
+    const hit = renderer.pickBuilding(point.x, point.y);
+    const ground = renderer.pick(point.x, point.y);
+    buildingPreview = buildingMode.value === 'place' && !hit && ground
+      ? terrain.buildingPlacement(current, ground, buildingRotation) : null;
+    renderer.renderOverlay(buildingPreview, selectedBuildingId);
+    if (hit) buildingMessage('Haus anklicken zum Auswählen.');
+    else if (buildingPreview) buildingMessage(buildingPreview.valid ? 'Klicken, um das Haus zu bauen.' : buildingPreview.reason, !buildingPreview.valid);
+    else buildingMessage(selectedBuildingId ? 'Haus ausgewählt · Q/E dreht · Entf löscht.' : 'Ein Haus anklicken oder „Haus bauen“ wählen.');
+  }
+  function clickBuilding(point) {
+    stopRotation();
+    const hit = renderer.pickBuilding(point.x, point.y);
+    if (hit || buildingMode.value === 'select') {
+      selectedBuildingId = hit;
+      if (hit) buildingMode.value = 'select';
+      clearBuildingPreview(); syncBuildingControls();
+      buildingMessage(hit ? 'Haus ausgewählt · Q/E dreht · Entf löscht.' : 'Kein Haus ausgewählt.');
+      return;
+    }
+    previewBuilding(point);
+    if (!buildingPreview?.valid) return;
+    const before = snapshot();
+    if (!terrain.placeBuilding(current, buildingPreview.building, buildingRotation)) return;
+    selectedBuildingId = null;
+    pushHistory(before); render(); persist();
+    buildingMessage('Haus gebaut. Eine weitere freie Stelle wählen.');
+  }
+  function rotateHouse(delta) {
+    if (busy || !current || !buildingsActive()) return;
+    if (selectedBuildingId) {
+      const building = current.buildings.find(building => building.id === selectedBuildingId);
+      if (!building) return;
+      const before = snapshot();
+      const result = terrain.rotateBuilding(current, selectedBuildingId, building.rotation + delta);
+      if (!result.valid) { buildingMessage(result.reason, true); return; }
+      pushHistory(before); render(); persist();
+      buildingMessage('Ausgewähltes Haus gedreht.');
+    } else {
+      buildingRotation = (buildingRotation + delta + 360) % 360;
+      if (buildingPoint) previewBuilding(buildingPoint);
+    }
+    syncBuildingControls();
+  }
+  function deleteHouse() {
+    if (busy || !current || !buildingsActive() || !selectedBuildingId) return;
+    const before = snapshot();
+    if (!terrain.removeBuilding(current, selectedBuildingId)) return;
+    selectedBuildingId = null;
+    pushHistory(before); render(); persist();
+    buildingMessage('Haus gelöscht.');
+  }
+  buildingMode.addEventListener('change', () => {
+    selectedBuildingId = null; clearBuildingPreview(); syncBuildingControls();
+    buildingMessage(buildingMode.value === 'place' ? 'Bewege den Zeiger über eine freie Baufläche.' : 'Ein Haus anklicken.');
+  });
+  byId('rotateBuildingLeftBtn').addEventListener('click', () => rotateHouse(-90));
+  byId('rotateBuildingRightBtn').addEventListener('click', () => rotateHouse(90));
+  deleteBuildingButton.addEventListener('click', deleteHouse);
   function syncCameraControls() {
     const zoom = renderer.camera.zoom, pitch = renderer.camera.pitch;
     const setSelection = (input, value, customId, label) => {
@@ -121,6 +215,7 @@
         world.mode = 'ocean'; world.height.fill(0); terrain.refreshDetails(world);
       }
       current = world;
+      selectedBuildingId = null;
       if (!restored) Object.assign(renderer.camera, { x: 47.5, y: 47.5 });
       fitCanvas(); render();
       syncCameraControls();
@@ -146,8 +241,13 @@
     return { x: (event.clientX - rect.left) * canvas.width / rect.width,
       y: (event.clientY - rect.top) * canvas.height / rect.height };
   }
-  function isBrushGesture() { return gesture && ['raise', 'forest'].includes(gesture.kind); }
+  function isBrushGesture() { return gesture && ['raise', 'forest', 'water'].includes(gesture.kind); }
   function updateCursor(event) {
+    if (buildingsActive()) {
+      cursor.hidden = true;
+      if (!busy && !gesture) previewBuilding(canvasPoint(event));
+      return;
+    }
     if (!brushActive || busy || (gesture && !isBrushGesture())) { cursor.hidden = true; return; }
     const point = canvasPoint(event);
     cursor.hidden = point.x < 0 || point.y < 0 || point.x >= canvas.width || point.y >= canvas.height;
@@ -161,6 +261,8 @@
     const ceiling = current.settings.water / 100 + Number(brushHeight.value) / 100;
     const changed = gesture.kind === 'forest'
       ? terrain.paintForest(current, from, to, Number(forestSize.value), Number(forestDensity.value))
+      : gesture.kind === 'water'
+      ? terrain.paintWater(current, from, to, Number(waterSize.value), Number(waterDepth.value), gesture.waterStroke)
       : terrain.raiseTimed(current, from, to, Number(brushSize.value), seconds, Number(brushStrength.value), ceiling);
     gesture.changed ||= changed;
     return changed;
@@ -204,17 +306,20 @@
     event.preventDefault(); canvas.focus({ preventScroll: true });
     const point = canvasPoint(event);
     if (point.x < 0 || point.y < 0 || point.x >= canvas.width || point.y >= canvas.height) return;
-    const kind = event.button === 1 ? 'orbit' : brushActive && event.button === 0 ? (selectedTool === 'forest' ? 'forest' : 'raise') : 'pan';
-    if (['raise', 'forest'].includes(kind)) stopRotation();
+    if (buildingsActive() && event.button === 0) { clickBuilding(point); return; }
+    clearBuildingPreview();
+    const kind = event.button === 1 ? 'orbit' : brushActive && event.button === 0 ? (selectedTool === 'height' ? 'raise' : selectedTool) : 'pan';
+    if (['raise', 'forest', 'water'].includes(kind)) stopRotation();
     // Freeze the picking surface for a stroke. A growing mountain must not move
     // the brush's ground anchor toward the camera while the mouse stays still.
     const picking = renderer.getPicking();
-    gesture = { id: event.pointerId, kind, before: ['raise', 'forest'].includes(kind) ? snapshot() : null,
+    gesture = { id: event.pointerId, kind, before: ['raise', 'forest', 'water'].includes(kind) ? snapshot() : null,
       picking, last: renderer.pick(point.x, point.y, picking), pending: [], changed: false,
       screen: point, clientY: event.clientY, camera: { ...renderer.camera }, time: performance.now() };
+    if (kind === 'water') gesture.waterStroke = terrain.beginWaterStroke(current, gesture.last, Number(waterDepth.value), waterMode.value);
     try { canvas.setPointerCapture(event.pointerId); } catch { /* Synthetic browser test events have no active native pointer. */ }
     if (isBrushGesture()) {
-      if (kind === 'forest') flushBrush(performance.now());
+      if (kind === 'forest' || kind === 'water') flushBrush(performance.now());
       frame = requestAnimationFrame(tick);
     } else canvas.classList.add('panning');
     syncButtons(); updateCursor(event);
@@ -245,18 +350,36 @@
   canvas.addEventListener('pointerup', endGesture);
   canvas.addEventListener('pointercancel', endGesture);
   canvas.addEventListener('lostpointercapture', endGesture);
-  canvas.addEventListener('pointerleave', () => { cursor.hidden = true; });
+  canvas.addEventListener('pointerleave', () => { cursor.hidden = true; clearBuildingPreview(); });
   canvas.addEventListener('contextmenu', event => event.preventDefault());
   canvas.addEventListener('auxclick', event => { if (event.button === 1) event.preventDefault(); });
   window.addEventListener('pointerup', endGesture);
-  window.addEventListener('blur', () => { stopRotation(); endGesture(); cursor.hidden = true; });
+  window.addEventListener('blur', () => { stopRotation(); endGesture(); cursor.hidden = true; clearBuildingPreview(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) { stopRotation(); endGesture(); } });
   window.addEventListener('pagehide', () => { stopRotation(); endGesture(); persist(); });
   viewport.addEventListener('scroll', () => { cursor.hidden = true; });
 
+  function deactivateTool() {
+    stopRotation();
+    endGesture();
+    brushActive = false;
+    selectedBuildingId = null;
+    clearBuildingPreview();
+    cursor.hidden = true;
+    canvas.classList.remove('sculpting');
+    Object.values(terrainTools).forEach(tool => {
+      tool.button.setAttribute('aria-pressed', 'false');
+      tool.button.classList.remove('active');
+    });
+    syncButtons();
+    if (current && !busy) describe();
+    buildingMessage('Werkzeug beendet. Zum Bauen „Gebäude“ erneut aktivieren.');
+  }
+
   Object.entries(terrainTools).forEach(([name, tool]) => {
     tool.button.addEventListener('click', () => {
       endGesture();
+      stopRotation(); selectedBuildingId = null; clearBuildingPreview();
       brushActive = tool.available && (selectedTool !== name || !brushActive);
       selectedTool = name;
       Object.entries(terrainTools).forEach(([key, entry]) => {
@@ -268,11 +391,13 @@
       });
       canvas.classList.toggle('sculpting', brushActive);
       cursor.dataset.tool = name;
-      cursor.hidden = true; describe();
+      cursor.hidden = true; describe(); syncBuildingControls();
+      if (name === 'building') buildingMessage('Bewege den Zeiger über eine freie Baufläche oder wähle ein Haus aus.');
     });
   });
   for (const [input, output, suffix] of [[brushSize, byId('brushSizeValue'), ''], [brushStrength, byId('brushStrengthValue'), ' %'],
-    [forestSize, byId('forestBrushSizeValue'), ''], [forestDensity, byId('forestBrushDensityValue'), ' %']]) {
+    [forestSize, byId('forestBrushSizeValue'), ''], [forestDensity, byId('forestBrushDensityValue'), ' %'],
+    [waterSize, byId('waterBrushSizeValue'), ''], [waterDepth, byId('waterBrushDepthValue'), ' %']]) {
     input.addEventListener('input', () => { output.value = input.value + suffix; });
   }
   function syncBrushHeight() {
@@ -293,6 +418,7 @@
     stopRotation();
     const next = source.pop(); target.push(snapshot());
     current = terrain.restore(next.world); renderer.setCamera(next.camera);
+    selectedBuildingId = null;
     writeSettings(current.settings); byId('terrainTitle').textContent = current.mode === 'ocean' ? 'Deine Wasserwelt' : current.settings.seed;
     render(); syncTerrainOutputs(); syncButtons(); syncCameraControls(); describe(); persist();
   }
@@ -334,8 +460,20 @@
     }
   });
   document.addEventListener('keydown', event => {
-    if (isEditing(event.target)) return;
     const key = event.key.toLowerCase();
+    if (key === 'escape' && (brushActive || gesture || rotationKeys.size || selectedBuildingId)) {
+      event.preventDefault();
+      deactivateTool();
+      return;
+    }
+    if (isEditing(event.target)) return;
+    if (buildingsActive() && !event.ctrlKey && !event.metaKey && !event.altKey && ['q', 'e', 'delete', 'backspace'].includes(key)) {
+      event.preventDefault();
+      if (event.repeat) return;
+      if (key === 'q' || key === 'e') rotateHouse(key === 'q' ? -90 : 90);
+      else deleteHouse();
+      return;
+    }
     if (!event.ctrlKey && !event.metaKey && !event.altKey && ['q', 'e'].includes(key)) {
       event.preventDefault();
       if (event.repeat || rotationKeys.has(key) || !current || busy) return;
@@ -395,6 +533,7 @@
     endGesture();
     const filename = current.settings.seed.replace(/[^a-z0-9_-]/gi, '-').slice(0, 60) || 'landschaft';
     const dimensions = `${canvas.width} × ${canvas.height}`;
+    renderer.renderOverlay();
     canvas.toBlob(blob => {
       if (!blob) { status.textContent = 'PNG konnte nicht erstellt werden.'; return; }
       const url = URL.createObjectURL(blob), link = document.createElement('a');
@@ -403,6 +542,7 @@
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       status.textContent = `Ansicht als PNG exportiert · ${dimensions} Pixel`;
     }, 'image/png');
+    renderer.renderOverlay(buildingPreview, selectedBuildingId);
   });
 
   let initial = null;

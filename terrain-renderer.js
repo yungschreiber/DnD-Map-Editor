@@ -13,6 +13,7 @@
   function create(canvas) {
     const ctx = canvas.getContext('2d');
     let picking = null;
+    let drawOverlay = () => {};
     const camera = { ...DEFAULT_CAMERA };
     let cachedBasis;
     function basis(state = camera) {
@@ -47,6 +48,8 @@
       const depth = new Float32Array(width * height).fill(-Infinity);
       const pickX = new Float32Array(width * height), pickY = new Float32Array(width * height);
       const pickHeight = new Float32Array(width * height).fill(world.settings.water / 100);
+      const pickBuildings = new Float64Array(width * height);
+      let decorating = false, cleanPixels = null;
       const water = world.settings.water / 100, elevation = relief(world);
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
@@ -59,7 +62,7 @@
           pixels[i * 4 + 3] = 255;
         }
       }
-      function triangle(a, b, c, terrainSurface = true) {
+      function triangle(a, b, c, terrainSurface = true, buildingId = 0) {
         const minX = Math.max(0, Math.floor(Math.min(a.x, b.x, c.x)));
         const maxX = Math.min(width - 1, Math.ceil(Math.max(a.x, b.x, c.x)));
         const minY = Math.max(0, Math.floor(Math.min(a.y, b.y, c.y)));
@@ -72,9 +75,10 @@
             const v = ((c.y - a.y) * (x + .5 - c.x) + (a.x - c.x) * (y + .5 - c.y)) / denominator;
             const w = 1 - u - v;
             if (u < -.00001 || v < -.00001 || w < -.00001) continue;
-            const z = u * a.depth + v * b.depth + w * c.depth, i = y * width + x;
+            const z = u * a.depth + v * b.depth + w * c.depth + (decorating ? .0002 : 0), i = y * width + x;
             if (z < depth[i]) continue;
             depth[i] = z;
+            if (!decorating) pickBuildings[i] = buildingId;
             if (terrainSurface) {
               pickX[i] = u * a.wx + v * b.wx + w * c.wx;
               pickY[i] = u * a.wy + v * b.wy + w * c.wy;
@@ -82,7 +86,8 @@
             }
             const grain = (terrain.randomAt(world.seed + 20, x, y) - .5) * 7;
             for (let channel = 0; channel < 3; channel++) {
-              pixels[i * 4 + channel] = Math.round((u * a.color[channel] + v * b.color[channel] + w * c.color[channel] + grain) / 4) * 4;
+              const color = u * a.color[channel] + v * b.color[channel] + w * c.color[channel] + grain;
+              pixels[i * 4 + channel] = Math.round((decorating ? color * .65 + cleanPixels[i * 4 + channel] * .35 : color) / 4) * 4;
             }
           }
         }
@@ -93,9 +98,10 @@
         const key = `${x},${y}`;
         if (points.has(key)) return points.get(key);
         const h = terrain.heightAt(world, x, y);
+        const localWater = terrain.waterAt(world, x, y);
         let color;
-        if (h <= water) {
-          const shallow = Math.max(0, 1 - (water - h) / .20);
+        if (h <= localWater) {
+          const shallow = Math.max(0, 1 - (localWater - h) / .20);
           color = [31 + shallow * 26, 66 + shallow * 54, 82 + shallow * 44];
         } else {
           const dx = terrain.heightAt(world, x + 1, y) - terrain.heightAt(world, x - 1, y);
@@ -109,7 +115,7 @@
           const light = Math.max(.58, Math.min(1.22, .94 + (dx - dy) * elevation / 14));
           color = color.map(value => value * light);
         }
-        const point = { ...project(world, x, y, Math.max(water, h)), color };
+        const point = { ...project(world, x, y, Math.max(localWater, h)), color };
         points.set(key, point);
         return point;
       }
@@ -152,8 +158,55 @@
           triangle(bottomA, bottomB, trunkA, false); triangle(bottomB, trunkB, trunkA, false);
         }
       }
+      function house(building, tint = null, surface = terrain.buildingSurface(world, building)) {
+        const angle = building.rotation / 90, cos = [1, 0, -1, 0][angle], sin = [0, 1, 0, -1][angle];
+        const unit = SCALE * Math.cos(Math.PI / 6) / elevation;
+        const base = surface.height, wall = 2.5, ridge = 4.1;
+        const vertex = ([x, y, z], color) => ({ ...project(world,
+          building.x + x * cos - y * sin, building.y + x * sin + y * cos, base + z * unit),
+          color: tint ? color.map((value, i) => value * .25 + tint[i] * .75) : color });
+        const face = (coords, color) => {
+          const vertices = coords.map(point => vertex(point, color));
+          for (let i = 1; i < vertices.length - 1; i++) triangle(vertices[0], vertices[i], vertices[i + 1], false, building.id || 0);
+        };
+        const bottom = (surface.min - .004 - base) / unit;
+        const corners = [[-2, -3], [2, -3], [2, 3], [-2, 3]];
+        for (let i = 0; i < 4; i++) {
+          const a = corners[i], b = corners[(i + 1) % 4];
+          const shade = [.85, 1, 1.08, .72][(i + angle) % 4];
+          face([[...a, bottom], [...b, bottom], [...b, 0], [...a, 0]], [108, 109, 95].map(v => v * shade));
+          face([[...a, 0], [...b, 0], [...b, wall], [...a, wall]], [206, 187, 144].map(v => v * shade));
+        }
+        for (const y of [-3, 3]) {
+          face([[-2, y, wall], [2, y, wall], [0, y, ridge]], [175, 153, 111]);
+          // Timber sill and two upright posts on each gable wall.
+          const outward = y + Math.sign(y) * .015;
+          face([[-2, outward, .1], [2, outward, .1], [2, outward, .32], [-2, outward, .32]], [83, 65, 47]);
+          for (const x of [-1.85, 1.65]) face([[x, outward, 0], [x + .2, outward, 0], [x + .2, outward, wall], [x, outward, wall]], [83, 65, 47]);
+        }
+        face([[-.5, -3.025, 0], [.5, -3.025, 0], [.5, -3.025, 1.7], [-.5, -3.025, 1.7]], [62, 48, 33]);
+        for (const x of [-2.015, 2.015]) for (const y of [-1.5, 1]) {
+          face([[x, y, 1], [x, y + .8, 1], [x, y + .8, 1.8], [x, y, 1.8]], [58, 78, 77]);
+        }
+        face([[-2.3, -3.3, wall - .15], [-2.3, 3.3, wall - .15], [0, 3.3, ridge], [0, -3.3, ridge]], [117, 59, 43]);
+        face([[0, -3.3, ridge], [0, 3.3, ridge], [2.3, 3.3, wall - .15], [2.3, -3.3, wall - .15]], [161, 85, 57]);
+        // A narrow ridge cap makes the roof readable even in the top view.
+        face([[-.1, -3.35, ridge + .03], [.1, -3.35, ridge + .03], [.1, 3.35, ridge + .03], [-.1, 3.35, ridge + .03]], [191, 116, 76]);
+      }
+      for (const building of world.buildings) house(building);
       ctx.putImageData(image, 0, 0);
-      picking = { x: pickX, y: pickY, heights: pickHeight, width, height };
+      picking = { x: pickX, y: pickY, heights: pickHeight, buildings: pickBuildings, width, height };
+      cleanPixels = pixels.slice();
+      const cleanDepth = depth.slice();
+      // Cursor movement only redraws the houses used as overlays, not the terrain.
+      drawOverlay = (preview = null, selectedId = null) => {
+        pixels.set(cleanPixels); depth.set(cleanDepth); decorating = true;
+        const selected = world.buildings.find(building => building.id === selectedId);
+        if (selected) house(selected, [245, 216, 102]);
+        if (preview?.building) house(preview.building, preview.valid ? [132, 231, 151] : [248, 91, 82], preview);
+        decorating = false;
+        ctx.putImageData(image, 0, 0);
+      };
     }
     function pick(x, y, buffer = picking) {
       if (!buffer || x < 0 || y < 0 || x >= buffer.width || y >= buffer.height) return null;
@@ -171,7 +224,12 @@
         camera.y = clamp(camera.y + delta.y, -999000, 999000);
       }
     }
-    return { render, pick, project, camera, screenDelta, zoomAt, oceanPoint,
+    function pickBuilding(x, y) {
+      if (!picking || x < 0 || y < 0 || x >= picking.width || y >= picking.height) return null;
+      return picking.buildings[Math.floor(y) * picking.width + Math.floor(x)] || null;
+    }
+    return { render, pick, pickBuilding, project, camera, screenDelta, zoomAt, oceanPoint,
+      renderOverlay: (preview, selectedId) => drawOverlay(preview, selectedId),
       setCamera: input => Object.assign(camera, normalizeCamera(input)),
       getPicking: () => picking, step: STEP, basis };
   }

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="de">
+<meta charset="utf-8" />
+<title>Building browser checks</title>
+<style>body { font: 14px system-ui; } iframe { width: 1440px; height: 900px; border: 1px solid #777; } pre { white-space: pre-wrap; }</style>
+<h1>Building browser checks</h1>
+<p>Über einen lokalen HTTP-Server in einem separaten Browserprofil öffnen. Der vorherige Entwurf wird nach dem Test wiederhergestellt.</p>
+<pre id="result">RUNNING</pre>
+<iframe id="editor" title="Building test" src="about:blank"></iframe>
+<script src="../terrain-generator.js"></script>
+<script>
+(async () => {
+  const result = document.getElementById('result'), frame = document.getElementById('editor');
+  const key = 'dnd-map-editor-procedural-v1', saved = localStorage.getItem(key);
+  const assert = (condition, message) => { if (!condition) throw new Error(message); };
+  const wait = async predicate => {
+    for (let i = 0; i < 300; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 30)); }
+    throw new Error('Timed out');
+  };
+  const fixture = DND_TERRAIN.generate({ seed: 'Hausbau', forest: 0 });
+  fixture.mode = 'ocean'; fixture.height.fill(0);
+  for (let y = 20; y <= 76; y++) for (let x = 20; x <= 76; x++) fixture.edits.set(`${x},${y}`, .6);
+  fixture.waterEdits.set('30,30', .62);
+  fixture.edits.set('65,60', .5);
+  localStorage.setItem(key, JSON.stringify({ ...DND_TERRAIN.serialize(fixture), camera: { x: 48, y: 48, yaw: 0, pitch: 90, zoom: 2 } }));
+  let win, doc, canvas;
+  const ready = async () => {
+    await wait(() => frame.contentDocument?.getElementById('workspace')?.getAttribute('aria-busy') === 'false');
+    win = frame.contentWindow; doc = win.document; canvas = doc.getElementById('terrainCanvas');
+  };
+  const draft = () => JSON.parse(localStorage.getItem(key));
+  const image = () => canvas.toDataURL();
+  const screen = (x, y) => {
+    const renderer = win.DND_TERRAIN_RENDERER.create(canvas);
+    renderer.setCamera(draft().camera);
+    const p = renderer.project(fixture, x, y, .6), rect = canvas.getBoundingClientRect();
+    return { clientX: rect.left + p.x * rect.width / canvas.width, clientY: rect.top + p.y * rect.height / canvas.height };
+  };
+  const pointer = (type, x, y, extra = {}) => canvas.dispatchEvent(new win.PointerEvent(type, {
+    bubbles: true, cancelable: true, pointerId: 10, pointerType: 'mouse', button: 0,
+    buttons: type === 'pointerdown' ? 1 : 0, ...screen(x, y), ...extra
+  }));
+  const click = (x, y) => { pointer('pointerdown', x, y); pointer('pointerup', x, y); };
+  const press = key => {
+    canvas.focus();
+    canvas.dispatchEvent(new win.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    canvas.dispatchEvent(new win.KeyboardEvent('keyup', { key, bubbles: true, cancelable: true }));
+  };
+  try {
+    frame.src = '../procedural.html'; await ready();
+    const original = image(), initialDraft = JSON.stringify(draft());
+    doc.getElementById('buildingTerrainBtn').click();
+    assert(!doc.getElementById('buildingToolPanel').hidden, 'Building panel opens');
+    pointer('pointermove', 48, 48);
+    assert(image() !== original && doc.getElementById('buildingStatus').dataset.invalid === 'false', 'Valid house preview is visible');
+    assert(JSON.stringify(draft()) === initialDraft, 'Preview does not change the saved map');
+    const yaw = draft().camera.yaw;
+    press('e');
+    assert(doc.getElementById('buildingRotation').value === '90°' && draft().camera.yaw === yaw, 'E rotates the house preview, not the camera');
+    click(48, 48); pointer('pointerleave', 48, 48);
+    assert(draft().buildings.length === 1 && draft().buildings[0].rotation === 90, 'Click places exactly one rotated house');
+    const built = image(), firstId = draft().buildings[0].id;
+    doc.getElementById('undoTerrainBtn').click();
+    assert(!draft().buildings.length && image() === original, 'Undo removes the house');
+    doc.getElementById('redoTerrainBtn').click();
+    assert(draft().buildings[0].id === firstId && image() === built, 'Redo restores the exact house');
+    click(48, 48);
+    assert(doc.getElementById('buildingMode').value === 'select' && !doc.getElementById('deleteBuildingBtn').disabled, 'Clicking a visible roof selects the house');
+    assert(image() !== built, 'Selected house is highlighted');
+    let exported;
+    const originalToBlob = canvas.toBlob;
+    canvas.toBlob = function () { exported = this.toDataURL(); };
+    doc.getElementById('exportTerrainBtn').click();
+    canvas.toBlob = originalToBlob;
+    assert(exported === built && image() !== built, 'PNG capture includes houses and excludes selection, then restores the highlight');
+    press('q');
+    assert(draft().buildings[0].rotation === 0 && draft().camera.yaw === yaw, 'Q rotates the selected house');
+    press('Delete');
+    assert(!draft().buildings.length, 'Delete removes the selection');
+    doc.getElementById('undoTerrainBtn').click();
+    assert(draft().buildings.length === 1 && draft().buildings[0].rotation === 0, 'Deleting is undoable');
+    const mode = doc.getElementById('buildingMode');
+    mode.value = 'place'; mode.dispatchEvent(new win.Event('change'));
+    for (const [x, y, reason] of [[30, 30, 'Wasser'], [65, 60, 'steil'], [52, 48, 'Gebäude'], [10, 48, 'Wasser']]) {
+      pointer('pointermove', x, y);
+      assert(doc.getElementById('buildingStatus').dataset.invalid === 'true' && doc.getElementById('buildingStatus').textContent.includes(reason), 'Invalid site explains: ' + reason);
+      click(x, y);
+      assert(draft().buildings.length === 1, 'Invalid sites never place a house');
+    }
+    pointer('pointermove', 60, 48);
+    const previewImage = image();
+    canvas.toBlob = function () { exported = this.toDataURL(); };
+    doc.getElementById('exportTerrainBtn').click(); canvas.toBlob = originalToBlob;
+    assert(exported !== previewImage && image() === previewImage, 'PNG capture excludes the placement preview');
+    click(60, 48); pointer('pointerleave', 60, 48);
+    assert(draft().buildings.length === 2, 'Multiple houses can be built');
+    const village = image(), savedBuildings = JSON.stringify(draft().buildings);
+    const loaded = new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+    win.location.reload(); await loaded; await ready();
+    assert(JSON.stringify(draft().buildings) === savedBuildings && image() === village, 'Reload restores houses and their pixels');
+    doc.getElementById('buildingTerrainBtn').click(); click(48, 48); press('Escape');
+    assert(doc.getElementById('deleteBuildingBtn').disabled && image() === village, 'Escape clears selection');
+    assert(doc.getElementById('buildingTerrainBtn').getAttribute('aria-pressed') === 'false' && !canvas.classList.contains('sculpting'), 'Escape also leaves the building tool');
+    for (const [button, input] of [['raiseTerrainBtn', 'terrainBrushSize'], ['forestTerrainBtn', 'forestBrushSize'], ['waterTerrainBtn', 'waterBrushSize']]) {
+      doc.getElementById(button).click();
+      pointer('pointerdown', 60, 60);
+      // Escape must work even after a brush setting receives focus.
+      doc.getElementById(input).focus();
+      doc.getElementById(input).dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      assert(doc.getElementById(button).getAttribute('aria-pressed') === 'false' && doc.getElementById('terrainBrushCursor').hidden, 'Escape exits ' + button);
+      const stopped = JSON.stringify(draft());
+      pointer('pointermove', 63, 60, { buttons: 1 }); pointer('pointerup', 63, 60);
+      assert(JSON.stringify(draft()) === stopped, 'An escaped stroke never continues while the mouse is held');
+      const beforePan = draft();
+      pointer('pointerdown', 48, 48); pointer('pointermove', 50, 48, { buttons: 1 }); pointer('pointerup', 50, 48);
+      assert(draft().camera.x !== beforePan.camera.x && JSON.stringify(draft().edits) === JSON.stringify(beforePan.edits), 'Left drag pans after Escape');
+    }
+    for (const width of [390, 900, 1440]) {
+      frame.style.width = width + 'px';
+      await new Promise(resolve => setTimeout(resolve, 150));
+      assert(doc.documentElement.scrollWidth <= width + 2, 'Building controls fit at width ' + width);
+    }
+    result.textContent = 'PASS: preview, grid placement, house rotation, selection, deletion, undo/redo, invalid sites, clean PNG capture, persistence and responsive layout.';
+  } catch (error) { result.textContent = 'FAIL: ' + error.stack; }
+  finally {
+    const restore = () => saved === null ? localStorage.removeItem(key) : localStorage.setItem(key, saved);
+    restore(); frame.contentWindow.addEventListener('pagehide', restore, { once: true });
+  }
+})();
+</script>
+</html>

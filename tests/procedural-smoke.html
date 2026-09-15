@@ -26,6 +26,7 @@
     await wait(() => frame.contentDocument?.getElementById('workspace')?.getAttribute('aria-busy') === 'false');
     let win = frame.contentWindow, doc = win.document;
     win.addEventListener('error', event => errors.push(event.message));
+    doc.getElementById('resetTerrainViewBtn').click();
     const image = () => doc.getElementById('terrainCanvas').toDataURL();
     const submit = async () => {
       doc.getElementById('terrainForm').dispatchEvent(new win.Event('submit', { cancelable: true }));
@@ -136,16 +137,49 @@
     assert(image() === painted, 'Reload restores sculpted terrain, not just its seed');
     assert(JSON.stringify(JSON.parse(localStorage.getItem(key)).edits) === JSON.stringify(paintedDraft.edits), 'All edits survive reload');
     const cameraCanvas = doc.getElementById('terrainCanvas');
+    cameraCanvas.focus();
     const cameraRect = cameraCanvas.getBoundingClientRect();
     const draft = () => JSON.parse(localStorage.getItem(key));
     const baseCamera = draft().camera;
-    const cameraKey = key => cameraCanvas.dispatchEvent(new win.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    const cameraKey = (key, type = 'keydown', repeat = false) => cameraCanvas.dispatchEvent(new win.KeyboardEvent(type, { key, repeat, bubbles: true, cancelable: true }));
+    const visibleYaw = () => Number(doc.getElementById('terrainRotation').textContent.replace('°', ''));
+    const yawDelta = (before, after) => ((after - before + 540) % 360) - 180;
     cameraKey('e');
-    assert(draft().camera.yaw === (baseCamera.yaw + 15) % 360, 'E rotates right');
+    assert(visibleYaw() === Math.round(baseCamera.yaw), 'Keydown must not snap the view by 15 degrees');
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const duringHold = visibleYaw();
+    assert(yawDelta(baseCamera.yaw, duringHold) > 3, 'Holding E continuously rotates right');
+    for (let i = 0; i < 20; i++) cameraKey('e', 'keydown', true);
+    assert(visibleYaw() === duringHold, 'OS key repeats do not add rotation jumps');
+    cameraKey('e', 'keyup');
+    const stoppedYaw = draft().camera.yaw;
+    await new Promise(resolve => setTimeout(resolve, 150));
+    assert(visibleYaw() === Math.round(stoppedYaw), 'Releasing E stops rotation');
     cameraKey('q');
-    assert(draft().camera.yaw === baseCamera.yaw, 'Q rotates left');
+    await new Promise(resolve => setTimeout(resolve, 250));
+    cameraKey('q', 'keyup');
+    assert(yawDelta(stoppedYaw, draft().camera.yaw) < -3, 'Holding Q continuously rotates left');
+    cameraKey('q'); cameraKey('e');
+    const bothYaw = visibleYaw();
+    await new Promise(resolve => setTimeout(resolve, 150));
+    assert(visibleYaw() === bothYaw, 'Both rotation keys pause the camera');
+    cameraKey('q', 'keyup'); cameraKey('e', 'keyup');
+    cameraKey('e');
+    await new Promise(resolve => setTimeout(resolve, 100));
+    doc.getElementById('terrainSeed').focus();
+    const inputYaw = visibleYaw();
+    await new Promise(resolve => setTimeout(resolve, 120));
+    assert(visibleYaw() === inputYaw, 'Focusing an input stops held rotation');
+    cameraKey('e', 'keyup');
     doc.getElementById('terrainSeed').dispatchEvent(new win.KeyboardEvent('keydown', { key: 'q', bubbles: true }));
-    assert(draft().camera.yaw === baseCamera.yaw, 'Typing Q in the seed must not rotate');
+    assert(visibleYaw() === inputYaw, 'Typing Q in the seed must not rotate');
+    cameraCanvas.focus(); cameraKey('e');
+    await new Promise(resolve => setTimeout(resolve, 100));
+    win.dispatchEvent(new win.Event('blur'));
+    const blurYaw = visibleYaw();
+    await new Promise(resolve => setTimeout(resolve, 120));
+    assert(visibleYaw() === blurYaw, 'Window blur stops held rotation');
+    cameraKey('e', 'keyup');
     const middle = (type, y) => cameraCanvas.dispatchEvent(new win.PointerEvent(type, { bubbles: true, cancelable: true,
       pointerId: 2, pointerType: 'mouse', button: 1, buttons: type === 'pointerup' ? 0 : 4,
       clientX: cameraRect.left + cameraRect.width / 2, clientY: y }));
@@ -172,7 +206,7 @@
     doc.getElementById('resetTerrainViewBtn').click();
     assert(draft().camera.yaw === 45 && draft().camera.pitch === 30 && draft().camera.zoom === 1, 'Reset restores the standard view');
     assert(errors.length === 0, errors.join('\n'));
-    result.textContent = 'PASS: generation, PNG, persistence, responsive widths, controlled sculpting, undo/redo, distant water, Q/E, middle-drag tilt, Ctrl+wheel zoom, camera persistence and reset.';
+    result.textContent = 'PASS: generation, PNG, persistence, responsive widths, sculpting, undo/redo, distant water, continuous Q/E and release, key-repeat independence, input/blur cancellation, middle-drag tilt, Ctrl+wheel zoom, camera persistence/reset.';
   } catch (error) {
     result.textContent = `FAIL: ${error.stack}`;
   } finally {

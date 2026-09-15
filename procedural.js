@@ -6,7 +6,6 @@
   const renderer = window.DND_TERRAIN_RENDERER.create(canvas);
   const viewport = byId('workspace');
   const status = byId('terrainStatus');
-  const hint = byId('terrainSettingsHint');
   const seedInput = byId('terrainSeed');
   const zoomInput = byId('terrainZoom');
   const pitchInput = byId('terrainPitch');
@@ -47,9 +46,7 @@
     [generateButton, newButton, oceanButton, exportButton, brushButton, zoomInput, pitchInput, rotateLeft, rotateRight, resetView].forEach(button => { button.disabled = busy || !current; });
   }
   function describe() {
-    status.textContent = brushActive
-      ? `Gelände langsam anheben · Höhenlimit: +${brushHeight.value} % über Wasser · Rechte Maustaste: Ansicht verschieben`
-      : 'Q / E: drehen · Mittlere Maustaste + Ziehen: neigen · Strg + Mausrad: zoomen';
+    status.textContent = brushActive ? 'Berghöhe aktiv' : 'Bereit';
     canvas.setAttribute('aria-label', `Bearbeitbare isometrische Landschaft „${current.settings.seed}“`);
   }
   function persist() {
@@ -71,11 +68,8 @@
     brushHeight.value = Math.min(Number(brushHeight.value), Number(brushHeight.max));
     syncBrushHeight();
   }
-  function markPending() {
+  function syncTerrainOutputs() {
     controls.forEach(({ input, output }) => { output.value = `${input.value} %`; });
-    hint.textContent = current && JSON.stringify(readSettings()) === JSON.stringify(current.settings)
-      ? 'Generieren ersetzt das Gelände. Mit Rückgängig kannst du es zurückholen.'
-      : 'Einstellungen bereit. „Generieren“ erzeugt die Landschaft neu.';
   }
   function render() { renderer.render(current); }
   function syncCameraControls() {
@@ -123,7 +117,7 @@
       if (before) pushHistory(before);
       writeSettings(world.settings);
       byId('terrainTitle').textContent = world.mode === 'ocean' ? 'Deine Wasserwelt' : world.settings.seed;
-      markPending(); describe(); persist();
+      syncTerrainOutputs(); describe(); persist();
     } catch (error) {
       status.textContent = 'Die Landschaft konnte nicht erzeugt werden. Bitte erneut versuchen.';
       console.error(error);
@@ -275,7 +269,7 @@
     const next = source.pop(); target.push(snapshot());
     current = terrain.restore(next.world); renderer.setCamera(next.camera);
     writeSettings(current.settings); byId('terrainTitle').textContent = current.mode === 'ocean' ? 'Deine Wasserwelt' : current.settings.seed;
-    render(); markPending(); syncButtons(); syncCameraControls(); describe(); persist();
+    render(); syncTerrainOutputs(); syncButtons(); syncCameraControls(); describe(); persist();
   }
   undoButton.addEventListener('click', () => travel(history, redo));
   redoButton.addEventListener('click', () => travel(redo, history));
@@ -293,6 +287,7 @@
   function rotateHeld(time) {
     rotationFrame = 0;
     if (!rotationKeys.size) return;
+    if (document.hidden || isEditing(document.activeElement)) { stopRotation(); return; }
     advanceRotation(time);
     rotationFrame = requestAnimationFrame(rotateHeld);
   }
@@ -340,8 +335,7 @@
     seedInput.value = `Insel-${Array.from(values, n => n.toString(36)).join('-')}`;
     void generate();
   });
-  seedInput.addEventListener('input', markPending);
-  controls.forEach(({ input }) => input.addEventListener('input', markPending));
+  controls.forEach(({ input }) => input.addEventListener('input', syncTerrainOutputs));
   function changeCamera(change) {
     if (!current || busy) return;
     endGesture(); cursor.hidden = true;

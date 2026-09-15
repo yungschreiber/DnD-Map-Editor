@@ -13,7 +13,7 @@
 #terrainCanvas.panning { cursor: grabbing; }
 #terrainBrushCursor { position: fixed; pointer-events: none; z-index: 5; transform: translate(-50%, -50%); border: 1px solid #edffcd; border-radius: 50%; background: #c7e99b18; box-shadow: 0 0 0 1px #15282d99; }
 #raiseTerrainBtn { min-height: 44px; }
-.terrain-brush-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-bottom: 16px; }
+.terrain-brush-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin: 12px 0 16px; }
 .terrain-brush-presets button { padding: 8px 3px; font-size: 11px; }
 #terrainTitle { overflow-wrap: anywhere; }
 .procedural-page .workspace-heading > div:first-child { min-width: 0; }

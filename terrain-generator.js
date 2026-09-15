@@ -56,7 +56,7 @@
         moisture[y * SIZE + x] = noise(seed + 3, nx * 7, ny * 7);
       }
     }
-    const world = { version: 1, size: SIZE, settings, seed, height, moisture, edits: new Map(), mode: 'island' };
+    const world = { version: 1, size: SIZE, settings, seed, height, moisture, edits: new Map(), forestEdits: new Map(), mode: 'island' };
     refreshDetails(world);
     return world;
   }
@@ -87,13 +87,16 @@
       const [x, y] = key.split(',').map(Number);
       if (x % 2 === 0 && y % 2 === 0) candidates.add(key);
     }
+    for (const key of world.forestEdits.keys()) candidates.add(key);
     for (const key of candidates) {
       const [x, y] = key.split(',').map(Number), h = heightAt(world, x, y);
       const slope = Math.abs(heightAt(world, x + 1, y) - heightAt(world, x - 1, y))
         + Math.abs(heightAt(world, x, y + 1) - heightAt(world, x, y - 1));
-      if (h > water + .035 && h < .72 && slope < .10
-        && randomAt(seed + 4, x, y) < settings.forest / 100 * moistureAt(world, x, y) * .65) {
-        trees.push({ x, y, height: h, variant: randomAt(seed + 5, x, y) });
+      const manual = world.forestEdits.has(key);
+      const density = manual ? world.forestEdits.get(key) / 100 : settings.forest / 100 * moistureAt(world, x, y) * .65;
+      if (h > water + (manual ? .015 : .035) && h < (manual ? .9 : .72) && slope < (manual ? .16 : .10)
+        && randomAt(seed + 4, x, y) < density) {
+        trees.push({ x, y, height: h, type: 'fir', variant: randomAt(seed + 5, x, y) });
       }
     }
     world.trees = trees;
@@ -148,15 +151,16 @@
   }
 
   function serialize(world) {
-    return { version: 2, settings: world.settings, mode: world.mode,
-      edits: Array.from(world.edits, ([key, value]) => [...key.split(',').map(Number), value]) };
+    return { version: 3, settings: world.settings, mode: world.mode,
+      edits: Array.from(world.edits, ([key, value]) => [...key.split(',').map(Number), value]),
+      forestEdits: Array.from(world.forestEdits, ([key, value]) => [...key.split(',').map(Number), value]) };
   }
 
   function restore(data) {
-    if (!data || ![1, 2].includes(data.version)) throw new Error('Ungültige Landschaft');
+    if (!data || ![1, 2, 3].includes(data.version)) throw new Error('Ungültige Landschaft');
     const world = generate(data.settings);
     if (data.mode === 'ocean') { world.mode = 'ocean'; world.height.fill(0); }
-    if (data.version === 2) {
+    if (data.version >= 2) {
       if (!Array.isArray(data.edits) || data.edits.length > 200000) throw new Error('Ungültige Geländeänderungen');
       for (const entry of data.edits) {
         if (!Array.isArray(entry) || entry.length !== 3 || !entry.every(Number.isFinite)
@@ -165,11 +169,43 @@
         world.edits.set(`${entry[0]},${entry[1]}`, entry[2]);
       }
     }
+    if (data.version >= 3) {
+      if (!Array.isArray(data.forestEdits) || data.forestEdits.length > 200000) throw new Error('Ungültige Waldänderungen');
+      for (const entry of data.forestEdits) {
+        if (!Array.isArray(entry) || entry.length !== 3 || !entry.every(Number.isFinite)
+          || !Number.isInteger(entry[0]) || !Number.isInteger(entry[1]) || entry[0] % 2 !== 0 || entry[1] % 2 !== 0
+          || Math.abs(entry[0]) > 1000020 || Math.abs(entry[1]) > 1000020
+          || !Number.isInteger(entry[2]) || entry[2] < 0 || entry[2] > 100) throw new Error('Ungültige Walddichte');
+        world.forestEdits.set(`${entry[0]},${entry[1]}`, entry[2]);
+      }
+    }
     refreshDetails(world);
     return world;
   }
 
-  const api = { DEFAULTS, normalizeSettings, generate, randomAt, heightAt, moistureAt, refreshDetails, raise, raiseTimed, serialize, restore };
+  function paintForest(world, from, to, radius, density) {
+    if (![from.x, from.y, to.x, to.y, radius, density].every(Number.isFinite) || radius <= 0) return false;
+    radius = clamp(radius, 2, 30); density = clamp(Math.round(density), 0, 100);
+    const dx = to.x - from.x, dy = to.y - from.y, length2 = dx * dx + dy * dy;
+    if (length2 > 1000000 || Math.max(Math.abs(from.x), Math.abs(from.y), Math.abs(to.x), Math.abs(to.y)) > 1000000) return false;
+    let changed = false;
+    for (let y = Math.floor((Math.min(from.y, to.y) - radius) / 2) * 2; y <= Math.ceil(Math.max(from.y, to.y) + radius); y += 2) {
+      for (let x = Math.floor((Math.min(from.x, to.x) - radius) / 2) * 2; x <= Math.ceil(Math.max(from.x, to.x) + radius); x += 2) {
+        const t = length2 ? clamp(((x - from.x) * dx + (y - from.y) * dy) / length2, 0, 1) : 0;
+        if (Math.hypot(x - from.x - t * dx, y - from.y - t * dy) > radius) continue;
+        const key = `${x},${y}`, h = heightAt(world, x, y);
+        const slope = Math.abs(heightAt(world, x + 1, y) - heightAt(world, x - 1, y))
+          + Math.abs(heightAt(world, x, y + 1) - heightAt(world, x, y - 1));
+        const suitable = h > world.settings.water / 100 + .015 && h < .9 && slope < .16;
+        if (!suitable && !(density === 0 && world.forestEdits.has(key))) continue;
+        // An absolute density makes repainting stable; 0% also clears generated trees.
+        if (world.forestEdits.get(key) !== density) { world.forestEdits.set(key, density); changed = true; }
+      }
+    }
+    return changed;
+  }
+
+  const api = { DEFAULTS, normalizeSettings, generate, randomAt, heightAt, moistureAt, refreshDetails, raise, raiseTimed, paintForest, serialize, restore };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else window.DND_TERRAIN = api;
 })();

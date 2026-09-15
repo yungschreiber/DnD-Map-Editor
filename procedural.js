@@ -22,6 +22,14 @@
   const brushSize = byId('terrainBrushSize');
   const brushStrength = byId('terrainBrushStrength');
   const brushHeight = byId('terrainBrushHeight');
+  const forestSize = byId('forestBrushSize');
+  const forestDensity = byId('forestBrushDensity');
+  const terrainTools = {
+    height: { button: brushButton, panel: byId('heightToolPanel'), label: 'Berghöhe', size: brushSize, available: true },
+    forest: { button: byId('forestTerrainBtn'), panel: byId('forestToolPanel'), label: 'Wald', size: forestSize, available: true },
+    water: { button: byId('waterTerrainBtn'), panel: byId('waterToolPanel'), label: 'Wasser', available: false }
+  };
+  let selectedTool = 'height';
   const cursor = byId('terrainBrushCursor');
   const controls = ['water', 'relief', 'forest'].map(name => ({ name,
     input: byId(`terrain${name[0].toUpperCase()}${name.slice(1)}`), output: byId(`${name}Value`) }));
@@ -44,9 +52,11 @@
     undoButton.disabled = busy || !!gesture || !history.length;
     redoButton.disabled = busy || !!gesture || !redo.length;
     [generateButton, newButton, oceanButton, exportButton, brushButton, zoomInput, pitchInput, rotateLeft, rotateRight, resetView].forEach(button => { button.disabled = busy || !current; });
+    Object.values(terrainTools).forEach(tool => { tool.button.disabled = busy || !current; });
   }
   function describe() {
-    status.textContent = brushActive ? 'Berghöhe aktiv' : 'Bereit';
+    status.textContent = !terrainTools[selectedTool].available ? 'Wasser · In Vorbereitung'
+      : brushActive ? `${terrainTools[selectedTool].label} aktiv` : 'Bereit';
     canvas.setAttribute('aria-label', `Bearbeitbare isometrische Landschaft „${current.settings.seed}“`);
   }
   function persist() {
@@ -136,11 +146,12 @@
     return { x: (event.clientX - rect.left) * canvas.width / rect.width,
       y: (event.clientY - rect.top) * canvas.height / rect.height };
   }
+  function isBrushGesture() { return gesture && ['raise', 'forest'].includes(gesture.kind); }
   function updateCursor(event) {
-    if (!brushActive || busy || (gesture && gesture.kind !== 'raise')) { cursor.hidden = true; return; }
+    if (!brushActive || busy || (gesture && !isBrushGesture())) { cursor.hidden = true; return; }
     const point = canvasPoint(event);
     cursor.hidden = point.x < 0 || point.y < 0 || point.x >= canvas.width || point.y >= canvas.height;
-    const rect = canvas.getBoundingClientRect(), radius = Number(brushSize.value);
+    const rect = canvas.getBoundingClientRect(), radius = Number(terrainTools[selectedTool].size.value);
     const basis = renderer.basis();
     cursor.style.width = `${radius * 2 * basis.scale * rect.width / canvas.width}px`;
     cursor.style.height = `${radius * 2 * basis.scale * basis.rise * rect.height / canvas.height}px`;
@@ -148,12 +159,14 @@
   }
   function applyBrush(from, to, seconds) {
     const ceiling = current.settings.water / 100 + Number(brushHeight.value) / 100;
-    const changed = terrain.raiseTimed(current, from, to, Number(brushSize.value), seconds, Number(brushStrength.value), ceiling);
+    const changed = gesture.kind === 'forest'
+      ? terrain.paintForest(current, from, to, Number(forestSize.value), Number(forestDensity.value))
+      : terrain.raiseTimed(current, from, to, Number(brushSize.value), seconds, Number(brushStrength.value), ceiling);
     gesture.changed ||= changed;
     return changed;
   }
   function flushBrush(time) {
-    if (!gesture || gesture.kind !== 'raise') return false;
+    if (!isBrushGesture()) return false;
     let changed = false;
     const points = gesture.pending.splice(0);
     points.push({ point: points.length ? points[points.length - 1].point : gesture.last, time });
@@ -168,7 +181,7 @@
   }
   function tick(time) {
     frame = 0;
-    if (!gesture || gesture.kind !== 'raise') return;
+    if (!isBrushGesture()) return;
     const elapsed = Math.max(0, (time - gesture.time) / 1000);
     if (elapsed >= 1 / 30) {
       flushBrush(time);
@@ -178,7 +191,7 @@
   function endGesture(event) {
     if (!gesture || (event?.pointerId !== undefined && event.pointerId !== gesture.id)) return;
     cancelAnimationFrame(frame); frame = 0;
-    if (gesture.kind === 'raise') flushBrush(performance.now());
+    if (isBrushGesture()) flushBrush(performance.now());
     const ended = gesture;
     gesture = null;
     if (canvas.hasPointerCapture?.(ended.id)) canvas.releasePointerCapture(ended.id);
@@ -191,16 +204,17 @@
     event.preventDefault(); canvas.focus({ preventScroll: true });
     const point = canvasPoint(event);
     if (point.x < 0 || point.y < 0 || point.x >= canvas.width || point.y >= canvas.height) return;
-    const kind = event.button === 1 ? 'orbit' : brushActive && event.button === 0 ? 'raise' : 'pan';
-    if (kind === 'raise') stopRotation();
+    const kind = event.button === 1 ? 'orbit' : brushActive && event.button === 0 ? (selectedTool === 'forest' ? 'forest' : 'raise') : 'pan';
+    if (['raise', 'forest'].includes(kind)) stopRotation();
     // Freeze the picking surface for a stroke. A growing mountain must not move
     // the brush's ground anchor toward the camera while the mouse stays still.
     const picking = renderer.getPicking();
-    gesture = { id: event.pointerId, kind, before: kind === 'raise' ? snapshot() : null,
+    gesture = { id: event.pointerId, kind, before: ['raise', 'forest'].includes(kind) ? snapshot() : null,
       picking, last: renderer.pick(point.x, point.y, picking), pending: [], changed: false,
       screen: point, clientY: event.clientY, camera: { ...renderer.camera }, time: performance.now() };
     try { canvas.setPointerCapture(event.pointerId); } catch { /* Synthetic browser test events have no active native pointer. */ }
-    if (kind === 'raise') {
+    if (isBrushGesture()) {
+      if (kind === 'forest') flushBrush(performance.now());
       frame = requestAnimationFrame(tick);
     } else canvas.classList.add('panning');
     syncButtons(); updateCursor(event);
@@ -240,14 +254,25 @@
   window.addEventListener('pagehide', () => { stopRotation(); endGesture(); persist(); });
   viewport.addEventListener('scroll', () => { cursor.hidden = true; });
 
-  brushButton.addEventListener('click', () => {
-    endGesture(); brushActive = !brushActive;
-    brushButton.setAttribute('aria-pressed', String(brushActive));
-    brushButton.classList.toggle('active', brushActive);
-    canvas.classList.toggle('sculpting', brushActive);
-    cursor.hidden = true; describe();
+  Object.entries(terrainTools).forEach(([name, tool]) => {
+    tool.button.addEventListener('click', () => {
+      endGesture();
+      brushActive = tool.available && (selectedTool !== name || !brushActive);
+      selectedTool = name;
+      Object.entries(terrainTools).forEach(([key, entry]) => {
+        const selected = key === name;
+        entry.panel.hidden = !selected;
+        entry.button.setAttribute('aria-expanded', String(selected));
+        entry.button.setAttribute('aria-pressed', String(selected && (brushActive || !entry.available)));
+        entry.button.classList.toggle('active', selected && (brushActive || !entry.available));
+      });
+      canvas.classList.toggle('sculpting', brushActive);
+      cursor.dataset.tool = name;
+      cursor.hidden = true; describe();
+    });
   });
-  for (const [input, output, suffix] of [[brushSize, byId('brushSizeValue'), ''], [brushStrength, byId('brushStrengthValue'), ' %']]) {
+  for (const [input, output, suffix] of [[brushSize, byId('brushSizeValue'), ''], [brushStrength, byId('brushStrengthValue'), ' %'],
+    [forestSize, byId('forestBrushSizeValue'), ''], [forestDensity, byId('forestBrushDensityValue'), ' %']]) {
     input.addEventListener('input', () => { output.value = input.value + suffix; });
   }
   function syncBrushHeight() {

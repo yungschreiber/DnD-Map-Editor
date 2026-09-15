@@ -27,27 +27,6 @@
     </header>
 
     <aside class="sidebar" aria-label="Landschaft einstellen">
-      <section class="section terrain-controls">
-        <h2 class="panel-title">Gelände formen</h2>
-        <button id="raiseTerrainBtn" type="button" data-icon="↟" aria-pressed="false" disabled>Berghöhe</button>
-        <div class="terrain-brush-presets" role="group" aria-label="Höhenlimit wählen">
-          <button type="button" data-brush-height="4" aria-pressed="true" class="active">Flachland</button>
-          <button type="button" data-brush-height="18" aria-pressed="false">Hügel</button>
-          <button type="button" data-brush-height="50" aria-pressed="false">Berge</button>
-        </div>
-        <div class="field">
-          <label for="terrainBrushHeight">Höhenlimit über Wasser <output id="brushHeightValue" for="terrainBrushHeight">+4 %</output></label>
-          <input id="terrainBrushHeight" type="range" min="1" max="100" value="4" />
-        </div>
-        <div class="field">
-          <label for="terrainBrushSize">Pinselgröße <output id="brushSizeValue" for="terrainBrushSize">10</output></label>
-          <input id="terrainBrushSize" type="range" min="2" max="20" value="10" />
-        </div>
-        <div class="field">
-          <label for="terrainBrushStrength">Tempo <output id="brushStrengthValue" for="terrainBrushStrength">20 %</output></label>
-          <input id="terrainBrushStrength" type="range" min="1" max="100" value="20" />
-        </div>
-      </section>
       <form id="terrainForm">
         <section class="section">
           <h2 class="panel-title">Deine Welt</h2>
@@ -108,6 +87,72 @@
       </div>
       <div class="workspace-footer" role="status" aria-live="polite"><span class="live-dot" aria-hidden="true"></span><span id="terrainStatus">Landschaft wird erzeugt …</span></div>
     </main>
+    <aside class="inspector terrain-inspector" aria-label="Landschaft bearbeiten">
+      <div class="terrain-tool-header">
+        <h2 class="panel-title">Werkzeuge</h2>
+        <div class="terrain-tool-grid" role="group" aria-label="Landschaftswerkzeug wählen">
+          <button id="raiseTerrainBtn" type="button" aria-pressed="false" aria-expanded="true" aria-controls="heightToolPanel" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 20 7-15 4 8 3-5 5 12Z"/><path d="m7 11 3 2 3-2"/></svg><span>Höhe</span>
+          </button>
+          <button id="forestTerrainBtn" type="button" aria-pressed="false" aria-expanded="false" aria-controls="forestToolPanel" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2-5 7h3l-5 7h5v5h4v-5h5l-5-7h3Z"/></svg><span>Wald</span>
+          </button>
+          <button id="waterTerrainBtn" type="button" aria-pressed="false" aria-expanded="false" aria-controls="waterToolPanel" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3s-6 7-6 11a6 6 0 0 0 12 0c0-4-6-11-6-11Z"/><path d="M9 14a3 3 0 0 0 3 3"/></svg><span>Wasser</span>
+          </button>
+        </div>
+      </div>
+      <div class="terrain-tool-options">
+        <section id="heightToolPanel" class="terrain-controls" aria-labelledby="heightToolTitle">
+          <h2 id="heightToolTitle" class="panel-title">Berghöhe</h2>
+          <div class="terrain-brush-presets" role="group" aria-label="Höhenlimit wählen">
+            <button type="button" data-brush-height="4" aria-pressed="true" class="active">Flachland</button>
+            <button type="button" data-brush-height="18" aria-pressed="false">Hügel</button>
+            <button type="button" data-brush-height="50" aria-pressed="false">Berge</button>
+          </div>
+          <div class="field">
+            <label for="terrainBrushHeight">Höhenlimit über Wasser <output id="brushHeightValue" for="terrainBrushHeight">+4 %</output></label>
+            <input id="terrainBrushHeight" type="range" min="1" max="100" value="4" />
+          </div>
+          <div class="field">
+            <label for="terrainBrushSize">Pinselgröße <output id="brushSizeValue" for="terrainBrushSize">10</output></label>
+            <input id="terrainBrushSize" type="range" min="2" max="20" value="10" />
+          </div>
+          <div class="field">
+            <label for="terrainBrushStrength">Tempo <output id="brushStrengthValue" for="terrainBrushStrength">20 %</output></label>
+            <input id="terrainBrushStrength" type="range" min="1" max="100" value="20" />
+          </div>
+        </section>
+        <section id="forestToolPanel" class="terrain-controls" aria-labelledby="forestToolTitle" hidden>
+          <h2 id="forestToolTitle" class="panel-title">Wald</h2>
+          <div class="field">
+            <label for="forestTreeType">Baumart</label>
+            <select id="forestTreeType"><option value="fir">Tanne</option></select>
+          </div>
+          <div class="field">
+            <label for="forestBrushSize">Pinselgröße <output id="forestBrushSizeValue" for="forestBrushSize">12</output></label>
+            <input id="forestBrushSize" type="range" min="2" max="30" value="12" />
+          </div>
+          <div class="field">
+            <label for="forestBrushDensity">Dichte <output id="forestBrushDensityValue" for="forestBrushDensity">50 %</output></label>
+            <input id="forestBrushDensity" type="range" min="0" max="100" value="50" title="0 % entfernt den Wald im Pinselbereich" />
+          </div>
+        </section>
+        <section id="waterToolPanel" aria-labelledby="waterToolTitle" hidden>
+          <h2 id="waterToolTitle" class="panel-title">Wasser <span class="terrain-tool-badge">In Vorbereitung</span></h2>
+          <fieldset class="terrain-controls terrain-coming-soon" disabled aria-label="Wasserwerkzeug in Vorbereitung">
+            <div class="field">
+              <label for="waterBrushSize">Pinselgröße</label>
+              <input id="waterBrushSize" type="range" min="2" max="30" value="12" />
+            </div>
+            <div class="field">
+              <label for="waterBrushDepth">Tiefe</label>
+              <input id="waterBrushDepth" type="range" min="1" max="100" value="20" />
+            </div>
+          </fieldset>
+        </section>
+      </div>
+    </aside>
   </div>
   <div id="terrainBrushCursor" aria-hidden="true" hidden></div>
   <script src="terrain-generator.js"></script>

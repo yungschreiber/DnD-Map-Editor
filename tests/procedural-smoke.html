@@ -205,12 +205,71 @@
     assert(JSON.stringify(draft().camera) === JSON.stringify(savedCamera), 'Camera angles and zoom survive reload');
     doc.getElementById('resetTerrainViewBtn').click();
     assert(draft().camera.yaw === 45 && draft().camera.pitch === 30 && draft().camera.zoom === 1, 'Reset restores the standard view');
+    const forestFixture = win.DND_TERRAIN.generate({ seed: 'Forest brush', forest: 0 });
+    forestFixture.mode = 'ocean'; forestFixture.height.fill(0);
+    for (let y = 10; y <= 85; y++) for (let x = 10; x <= 85; x++) forestFixture.edits.set(`${x},${y}`, .5);
+    const fixtureDraft = JSON.stringify({ ...win.DND_TERRAIN.serialize(forestFixture), camera: { x: 47.5, y: 47.5, yaw: 45, pitch: 90, zoom: 1 } });
+    // Install the fixture after the editor's pagehide autosave has finished.
+    win.addEventListener('pagehide', () => localStorage.setItem(key, fixtureDraft), { once: true });
+    frame.contentWindow.location.reload();
+    await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+    win = frame.contentWindow; doc = win.document;
+    await wait(() => doc.getElementById('workspace').getAttribute('aria-busy') === 'false');
+    const forestCanvas = doc.getElementById('terrainCanvas'), forestRect = forestCanvas.getBoundingClientRect();
+    assert(draft().settings.seed === 'Forest brush', 'Forest test fixture loaded');
+    assert(doc.querySelector('.terrain-inspector').getBoundingClientRect().left >= forestRect.right - 1, 'Editing tools are on the right');
+    assert(doc.getElementById('forestTerrainBtn').querySelector('svg'), 'Forest tool has an icon');
+    doc.getElementById('forestTerrainBtn').click();
+    assert(!doc.getElementById('forestToolPanel').hidden && doc.getElementById('heightToolPanel').hidden, 'Tool selection shows matching settings');
+    assert(doc.getElementById('forestTreeType').options.length === 1 && doc.getElementById('forestTreeType').value === 'fir', 'One tree species');
+    const forestStroke = () => {
+      for (const [type, dx] of [['pointerdown', 0], ['pointermove', 80], ['pointerup', 80]]) {
+        forestCanvas.dispatchEvent(new win.PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 3,
+          pointerType: 'mouse', button: 0, buttons: type === 'pointerup' ? 0 : 1,
+          clientX: forestRect.left + forestRect.width / 2 + dx, clientY: forestRect.top + forestRect.height / 2 }));
+      }
+    };
+    const plainLand = image(), heightsBeforeForest = JSON.stringify(draft().edits);
+    doc.getElementById('forestBrushDensity').value = 100;
+    forestStroke();
+    const forestImage = image();
+    const denseDraft = draft(), denseForest = win.DND_TERRAIN.restore(denseDraft).trees.length;
+    assert(denseForest > 40 && forestImage !== plainLand, 'Forest brush visibly plants a dense forest');
+    assert(JSON.stringify(draft().edits) === heightsBeforeForest, 'Forest brush leaves terrain heights unchanged');
+    doc.getElementById('undoTerrainBtn').click();
+    assert(image() === plainLand, 'One undo removes the complete forest stroke');
+    doc.getElementById('redoTerrainBtn').click();
+    assert(image() === forestImage, 'Redo restores the forest');
+    forestStroke();
+    assert(image() === forestImage, 'Repainting the same forest density is stable');
+    doc.getElementById('forestBrushDensity').value = 20;
+    forestStroke();
+    const sparse = image(), sparseDraft = draft();
+    const sparseCount = win.DND_TERRAIN.restore(sparseDraft).trees.length;
+    assert(sparseCount > 0 && sparseCount < denseForest, 'Density controls tree count');
+    doc.getElementById('forestBrushDensity').value = 0;
+    forestStroke();
+    assert(win.DND_TERRAIN.restore(draft()).trees.length === 0, 'Zero density clears forest');
+    doc.getElementById('undoTerrainBtn').click();
+    assert(image() === sparse, 'Forest clearing is undoable');
+    doc.getElementById('waterTerrainBtn').click();
+    assert(!doc.getElementById('waterToolPanel').hidden && doc.getElementById('forestToolPanel').hidden, 'Water panel is prepared');
+    assert(doc.getElementById('waterBrushDepth').matches(':disabled'), 'Unimplemented water controls are disabled');
+    doc.getElementById('raiseTerrainBtn').click();
+    assert(!doc.getElementById('heightToolPanel').hidden && doc.getElementById('waterToolPanel').hidden, 'Height settings remain available');
+    frame.contentWindow.location.reload();
+    await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+    win = frame.contentWindow; doc = win.document;
+    await wait(() => doc.getElementById('workspace').getAttribute('aria-busy') === 'false');
+    assert(image() === sparse && JSON.stringify(draft().forestEdits) === JSON.stringify(sparseDraft.forestEdits), 'Forest edits survive reload');
     assert(errors.length === 0, errors.join('\n'));
-    result.textContent = 'PASS: generation, PNG, persistence, responsive widths, sculpting, undo/redo, distant water, continuous Q/E and release, key-repeat independence, input/blur cancellation, middle-drag tilt, Ctrl+wheel zoom, camera persistence/reset.';
+    result.textContent = 'PASS: generation, PNG, responsive layout, sculpting, camera controls, right tool panels, forest density, stable repainting, forest undo/redo and persistence, prepared water UI.';
   } catch (error) {
     result.textContent = `FAIL: ${error.stack}`;
   } finally {
-    if (saved === null) localStorage.removeItem(key); else localStorage.setItem(key, saved);
+    const restoreDraft = () => { if (saved === null) localStorage.removeItem(key); else localStorage.setItem(key, saved); };
+    restoreDraft();
+    frame.contentWindow.addEventListener('pagehide', restoreDraft, { once: true });
   }
 })();
 </script>
